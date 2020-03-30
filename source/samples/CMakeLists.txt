@@ -45,7 +45,7 @@ else()
 	
         add_subdirectory( DX12Test )
 
-        SET_PROPERTY(TARGET DX12Test PROPERTY FOLDER "Samples")
+        SET_PROPERTY(TARGET HelloDX12 PROPERTY FOLDER "Samples")
     endif()
 endif()
 

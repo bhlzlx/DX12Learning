@@ -1,16 +1,21 @@
-project( DX12Test )
+project( HelloDX12 )
 
 set( PROJECT_SOURCE
     ${PLATFORM_SOURCE}
     ${CMAKE_CURRENT_SOURCE_DIR}/HelloDX12.cpp
 )
 
-add_executable( DX12Test WIN32
+set ( PROJECT_HEADER 
+   ${CMAKE_CURRENT_SOURCE_DIR}/HelloDX12.h
+)
+
+add_executable( HelloDX12 WIN32
     ${PROJECT_SOURCE}
+	${PROJECT_HEADER}
 )
 
 target_link_libraries(
-    DX12Test
+    HelloDX12
 	d3d12
 	dxgi
 	d3dcompiler
