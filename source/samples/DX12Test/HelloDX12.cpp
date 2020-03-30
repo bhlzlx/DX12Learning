@@ -162,10 +162,8 @@ void HelloDX12::resize(uint32_t _width, uint32_t _height) {
 
 void HelloDX12::release() {
 	for (uint32_t flightIndex = 0; flightIndex < MaxFlightCount; ++flightIndex) {
-		HRESULT rst;
-		flightIndex = m_swapchain->GetCurrentBackBufferIndex();
-
 		if (m_fence[flightIndex]->GetCompletedValue() < m_fenceValue[flightIndex]) {
+            HRESULT rst;
 			rst = m_fence[flightIndex]->SetEventOnCompletion(m_fenceValue[flightIndex], m_fenceEvent);
 			if (FAILED(rst)) {
 				m_running = false;
@@ -174,9 +172,6 @@ void HelloDX12::release() {
 		}
 		m_fenceValue[flightIndex]++;
 	}
-	//
-	m_dxgiDevice->Release();
-	m_dxgiDevice = nullptr;
 	m_swapchain->Release();
 	m_swapchain = nullptr;
 	m_rtvDescriptorHeap->Release();
@@ -185,8 +180,6 @@ void HelloDX12::release() {
 	m_commandList = nullptr;
 
 	for (uint32_t flightIndex = 0; flightIndex < MaxFlightCount; ++flightIndex) {
-		m_renderTargets[flightIndex]->Release();
-		m_renderTargets[flightIndex] = nullptr;
 		//
 		m_commandAllocators[flightIndex]->Release();
 		m_commandAllocators[flightIndex] = nullptr;
@@ -194,6 +187,9 @@ void HelloDX12::release() {
 		m_fence[flightIndex]->Release();
 		m_fence[flightIndex] = nullptr;
 	}
+    m_dxgiDevice->Release();
+    m_dxgiDevice = nullptr;
+
 	
     printf("destroyed");
 }
