@@ -44,8 +44,10 @@ else()
 		add_definitions(-DUNICODE -D_UNICODE)
 	
         add_subdirectory( DX12Test )
+		add_subdirectory( DX12Triangle )
 
         SET_PROPERTY(TARGET HelloDX12 PROPERTY FOLDER "Samples")
+		SET_PROPERTY(TARGET DX12Triangle PROPERTY FOLDER "Samples")
     endif()
 endif()
 

@@ -2,7 +2,7 @@
 # 并包含子项目。
 #
 cmake_minimum_required (VERSION 3.4)
-project(NixGraphics)
+project( DX12Learning )
 # if( ANDROID )
 # elseif( APPLE )
 #     if( IOS )

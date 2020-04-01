@@ -1,11 +1,27 @@
-﻿#include "HelloDX12.h"
+﻿#include "DX12Triangle.h"
+
+const char vertexShader[] = R"(
+float4 main(float3 pos : POSITION) : SV_POSITION
+{
+	// just pass vertex position straight through
+	return float4(pos, 1.0f);
+}
+)";
+
+const char fragmentShader[] = R"(
+float4 main() : SV_TARGET
+{
+    // return green
+    return float4(0.0f, 1.0f, 0.0f, 1.0f);
+}
+)";
 
 // #include "d3dx12.h"
 
-bool HelloDX12::initialize( void* _wnd, Nix::IArchieve* ) {
+bool DX12Triangle::initialize( void* _wnd, Nix::IArchieve* ) {
 	{
 		//ComPtr<ID3D12Debug> debugController;
-		// ID3D12Debug* debugController;
+		ID3D12Debug* debugController;
 
 		if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController)))) {
 			debugController->EnableDebugLayer();
@@ -107,17 +123,20 @@ bool HelloDX12::initialize( void* _wnd, Nix::IArchieve* ) {
     if (m_fenceEvent == nullptr) {
         return false;
     }
+	//
+
+
 	return true;
 }
     
-void HelloDX12::resize(uint32_t _width, uint32_t _height) {
+void DX12Triangle::resize(uint32_t _width, uint32_t _height) {
     {// re-create the swapchain!
         if (!this->m_swapchain) {
 			//
 			DXGI_MODE_DESC displayModeDesc = {}; {
 				displayModeDesc.Width = _width;
 				displayModeDesc.Height = _height;
-				displayModeDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+				displayModeDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM; // ���ü��֧�ֲ�֧����
 			}
 			DXGI_SAMPLE_DESC sampleDesc = {}; {
 				sampleDesc.Count = 1;
@@ -169,7 +188,7 @@ void HelloDX12::resize(uint32_t _width, uint32_t _height) {
     printf("resized!");
 }
 
-void HelloDX12::release() {
+void DX12Triangle::release() {
 	for (uint32_t flightIndex = 0; flightIndex < MaxFlightCount; ++flightIndex) {
 		if (m_fence[flightIndex]->GetCompletedValue() < m_fenceValue[flightIndex]) {
             HRESULT rst;
@@ -202,7 +221,7 @@ void HelloDX12::release() {
     printf("destroyed");
 }
 
-void HelloDX12::tick() {
+void DX12Triangle::tick() {
     if (!m_swapchain) {
         return;
     }
@@ -277,15 +296,15 @@ void HelloDX12::tick() {
     }
 }
 
-const char * HelloDX12::title() {
+const char * DX12Triangle::title() {
     return "DX12 Clear Screen";
 }
 	
-uint32_t HelloDX12::rendererType() {
+uint32_t DX12Triangle::rendererType() {
 	return 0;
 }
 
-HelloDX12 theapp;
+DX12Triangle theapp;
 
 NixApplication* GetApplication() {
     return &theapp;
