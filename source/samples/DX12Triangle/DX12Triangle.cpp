@@ -1,4 +1,5 @@
 ﻿#include "DX12Triangle.h"
+#include <d3dcompiler.h>
 
 const char vertexShader[] = R"(
 float4 main(float3 pos : POSITION) : SV_POSITION
@@ -124,6 +125,86 @@ bool DX12Triangle::initialize( void* _wnd, Nix::IArchieve* ) {
         return false;
     }
 	//
+
+	D3D12_ROOT_SIGNATURE_DESC rootSigDesc = {}; {
+		rootSigDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+		rootSigDesc.NumParameters = 0; // 这个例子不需要传任何资源（ uniform / sampler / texture ）
+		rootSigDesc.NumStaticSamplers = 0;
+		rootSigDesc.pParameters = nullptr;
+		rootSigDesc.pStaticSamplers = nullptr;
+	}
+	ID3DBlob* signature = nullptr;
+	rst = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1, &signature, nullptr);
+	if (FAILED(rst)) {
+		return false;
+	}
+	rst = m_dxgiDevice->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_pipelineRootSignature));
+	if (FAILED(rst)) {
+		return false;
+	}
+	ID3DBlob* vertexShader = nullptr;
+	ID3DBlob* fragmentShader = nullptr;
+	ID3DBlob* errorBuff = nullptr;
+	rst = D3DCompileFromFile(
+		L"shaders/triangle/vertexShader.hlsl", 
+		nullptr, nullptr, 
+		"main", 
+		"vs_5_0", 
+		D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION, 
+		0, 
+		&vertexShader, 
+		&errorBuff
+	);
+	if (FAILED(rst)) {
+		OutputDebugStringA((char*)errorBuff->GetBufferPointer());
+		return false;
+	}
+
+	rst = D3DCompileFromFile(
+		L"shaders/triangle/fragmentShader.hlsl",
+		nullptr, nullptr,
+		"main",
+		"vs_5_0",
+		D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION,
+		0,
+		&vertexShader,
+		&errorBuff
+	);
+	if (FAILED(rst)) {
+		OutputDebugStringA((char*)errorBuff->GetBufferPointer());
+		return false;
+	}
+
+	D3D12_SHADER_BYTECODE pixelShaderBytecode = {}; {
+		pixelShaderBytecode.BytecodeLength = fragmentShader->GetBufferSize();
+		pixelShaderBytecode.pShaderBytecode = fragmentShader->GetBufferPointer();
+	}
+
+	D3D12_SHADER_BYTECODE vertexShaderBytecode = {}; {
+		vertexShaderBytecode.BytecodeLength = vertexShader->GetBufferSize();
+		vertexShaderBytecode.pShaderBytecode = vertexShader->GetBufferPointer();
+	}
+
+	D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
+		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
+	};
+
+	D3D12_INPUT_LAYOUT_DESC inputLayoutDesc = {}; {
+		inputLayoutDesc.NumElements = 1;
+		inputLayoutDesc.pInputElementDescs = &inputLayout[0];
+	}
+
+	D3D12_DEPTH_STENCIL_DESC depthStencil = {}; {
+		depthStencil.BackFace.
+	}
+
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC pipelineStateDesc = {}; {
+		auto& desc = pipelineStateDesc;
+		desc.InputLayout = inputLayoutDesc;
+		desc.pRootSignature = m_pipelineRootSignature;
+	}
+
+
 
 
 	return true;
