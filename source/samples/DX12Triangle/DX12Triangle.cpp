@@ -1,5 +1,6 @@
 ﻿#include "DX12Triangle.h"
 #include <d3dcompiler.h>
+#include "d3dx12.h"
 
 const char vertexShader[] = R"(
 float4 main(float3 pos : POSITION) : SV_POSITION
@@ -198,14 +199,96 @@ bool DX12Triangle::initialize( void* _wnd, Nix::IArchieve* ) {
 		depthStencil.BackFace.
 	}
 
+	DXGI_SAMPLE_DESC sampleDesc = {}; {
+		sampleDesc.Count = 1;
+	}
+
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC pipelineStateDesc = {}; {
 		auto& desc = pipelineStateDesc;
 		desc.InputLayout = inputLayoutDesc;
 		desc.pRootSignature = m_pipelineRootSignature;
+		desc.PS = pixelShaderBytecode;
+		desc.VS = vertexShaderBytecode;
+		desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+		desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+		desc.SampleDesc = sampleDesc;
+		desc.SampleMask = 0xffffffff;
+		desc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+		desc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+		desc.NumRenderTargets = 1;
 	}
 
+	rst = m_dxgiDevice->CreateGraphicsPipelineState(&pipelineStateDesc, IID_PPV_ARGS(&m_pipelineStateObject));
+	if (FAILED(rst)) {
+		return false;
+	}
 
+	Vertex vList[] = {
+	   { { 0.0f, 0.5f, 0.5f } },
+	   { { 0.5f, -0.5f, 0.5f } },
+	   { { -0.5f, -0.5f, 0.5f } },
+	};
 
+	int vBufferSize = sizeof(vList);
+
+	m_dxgiDevice->CreateCommittedResource(
+		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT), // a default heap
+		D3D12_HEAP_FLAG_NONE, // no flags
+		&CD3DX12_RESOURCE_DESC::Buffer(vBufferSize), // resource description for a buffer
+		D3D12_RESOURCE_STATE_COPY_DEST,
+		nullptr, // optimized clear value must be null for this type of resource. used for render targets and depth/stencil buffers
+		IID_PPV_ARGS(&this->m_vertexBuffer)
+	);
+
+	ID3D12Resource* vBufferUploadHeap;
+	device->CreateCommittedResource(
+		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD), // upload heap
+		D3D12_HEAP_FLAG_NONE, // no flags
+		&CD3DX12_RESOURCE_DESC::Buffer(vBufferSize), // resource description for a buffer
+		D3D12_RESOURCE_STATE_GENERIC_READ, // GPU will read from this buffer and copy its contents to the default heap
+		nullptr,
+		IID_PPV_ARGS(&vBufferUploadHeap));
+	vBufferUploadHeap->SetName(L"Vertex Buffer Upload Resource Heap");
+
+	// we can give resource heaps a name so when we debug with the graphics debugger we know what resource we are looking at
+	m_vertexBuffer->SetName(L"Vertex Buffer Resource Heap");
+
+	// store vertex buffer in upload heap
+	D3D12_SUBRESOURCE_DATA vertexData = {};
+	vertexData.pData = reinterpret_cast<BYTE*>(vList); // pointer to our vertex array
+	vertexData.RowPitch = vBufferSize; // size of all our triangle vertex data
+	vertexData.SlicePitch = vBufferSize; // also the size of our triangle vertex data
+
+	// we are now creating a command with the command list to copy the data from
+	// the upload heap to the default heap
+	UpdateSubresources(m_commandList, m_vertexBuffer, vBufferUploadHeap, 0, 0, 1, &vertexData);
+
+	// transition the vertex buffer data from copy destination state to vertex buffer state
+	m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(vertexBuffer, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER));
+
+	// Now we execute the command list to upload the initial assets (triangle data)
+	m_commandList->Close();
+	ID3D12CommandList* ppCommandLists[] = { m_commandList };
+	this->m_commandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
+
+	// create a vertex buffer view for the triangle. We get the GPU memory address to the vertex pointer using the GetGPUVirtualAddress() method
+	m_vertexBufferView.BufferLocation = m_vertexBuffer->GetGPUVirtualAddress();
+	m_vertexBufferView.StrideInBytes = sizeof(float)*3;
+	m_vertexBufferView.SizeInBytes = vBufferSize;
+
+	// Fill out the Viewport
+	m_viewport.TopLeftX = 0;
+	m_viewport.TopLeftY = 0;
+	m_viewport.Width = Width;
+	m_viewport.Height = Height;
+	m_viewport.MinDepth = 0.0f;
+	m_viewport.MaxDepth = 1.0f;
+
+	// Fill out a scissor rect
+	m_scissor.left = 0;
+	m_scissor.top = 0;
+	m_scissor.right = Width;
+	m_scissor.bottom = Height;
 
 	return true;
 }
