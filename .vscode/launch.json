@@ -11,7 +11,7 @@
             "program": "${workspaceFolder}/bin/Windows/x64/DX12Test.exe",
             "args": [],
             "stopAtEntry": false,
-            "cwd": "${workspaceFolder}",
+            "cwd": "${workspaceFolder}/bin/Windows/x64/",
             "environment": [],
             "externalConsole": false
         },
@@ -22,7 +22,7 @@
             "program": "${workspaceFolder}/bin/Windows/x64/DX12Triangle.exe",
             "args": [],
             "stopAtEntry": false,
-            "cwd": "${workspaceFolder}",
+            "cwd": "${workspaceFolder}/bin/Windows/x64/",
             "environment": [],
             "externalConsole": false
         }

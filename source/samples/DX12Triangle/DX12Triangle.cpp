@@ -152,7 +152,7 @@ bool DX12Triangle::initialize( void* _wnd, Nix::IArchieve* ) {
 	ID3DBlob* fragmentShader = nullptr;
 	ID3DBlob* errorBuff = nullptr;
 	rst = D3DCompileFromFile(
-		L"../../../../bin/shaders/triangle/vertexShader.hlsl", 
+		L"../../shaders/triangle/vertexShader.hlsl", 
 		nullptr, nullptr, 
 		"main", 
 		"vs_5_0", 
@@ -167,7 +167,7 @@ bool DX12Triangle::initialize( void* _wnd, Nix::IArchieve* ) {
 	}
 
 	rst = D3DCompileFromFile(
-		L"../../../../bin/shaders/triangle/FragmentShader.hlsl",
+		L"../../shaders/triangle/FragmentShader.hlsl",
 		nullptr, nullptr,
 		"main",
 		"ps_5_0",
@@ -215,9 +215,11 @@ bool DX12Triangle::initialize( void* _wnd, Nix::IArchieve* ) {
 		desc.DepthStencilState.DepthEnable = false;
 		desc.DepthStencilState.StencilEnable = false;
 		desc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+		desc.RasterizerState.CullMode = D3D12_CULL_MODE::D3D12_CULL_MODE_NONE;
 		desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
 		desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
 		desc.NumRenderTargets = 1;
+		desc.SampleMask = ~0;
 	}
 	rst = m_dxgiDevice->CreateGraphicsPipelineState(&pipelineStateDesc, IID_PPV_ARGS(&m_pipelineStateObject));
 	if (FAILED(rst)) {
