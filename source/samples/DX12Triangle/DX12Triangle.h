@@ -35,7 +35,7 @@ private:
 	D3D12_VIEWPORT				m_viewport;
 	D3D12_RECT					m_scissor;
 	ID3D12Resource*				m_vertexBuffer;
-	D3D12_VERTEX_BUFFER_VIEW	m_vertexBufferView;	
+	D3D12_VERTEX_BUFFER_VIEW	m_vertexBufferView; // 其实这个bufferview 不是view object只是跟OpenGL比较类似的东西。
 
 public:
 	virtual bool initialize(void* _wnd, Nix::IArchieve*);
