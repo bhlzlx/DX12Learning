@@ -1,6 +1,9 @@
 ﻿#include "DX12Triangle.h"
 #include <d3dcompiler.h>
 #include "d3dx12.h"
+#include <DirectXMath.h>
+#include <wrl/client.h>
+
 
 const char vertexShader[] = R"(
 float4 main(float3 pos : POSITION) : SV_POSITION
@@ -21,19 +24,26 @@ float4 main() : SV_TARGET
 // #include "d3dx12.h"
 
 bool DX12Triangle::initialize( void* _wnd, Nix::IArchieve* ) {
-	{
-		//ComPtr<ID3D12Debug> debugController;
-		ID3D12Debug* debugController;
 
-		if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController)))) {
+	UINT dxgiFactoryFlags = 0;
+
+#if defined(_DEBUG)
+	// Enable the debug layer (requires the Graphics Tools "optional feature").
+	// NOTE: Enabling the debug layer after device creation will invalidate the active device.
+	{
+		ID3D12Debug* debugController;
+		if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController))))
+		{
 			debugController->EnableDebugLayer();
+
 			// Enable additional debug layers.
-			// dxgiFactoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
+			dxgiFactoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
 		}
 	}
+#endif
 
 	// 1. create factory
-	HRESULT factoryHandle = CreateDXGIFactory1(IID_PPV_ARGS(&m_dxgiFactory));
+	HRESULT factoryHandle = CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&m_dxgiFactory));
 	if (FAILED(factoryHandle)) {
 		return false;
 	}
@@ -59,7 +69,7 @@ bool DX12Triangle::initialize( void* _wnd, Nix::IArchieve* ) {
         return false;
     }
     // 3. create the device
-    HRESULT rst = D3D12CreateDevice(
+	HRESULT rst = D3D12CreateDevice(
         m_dxgiAdapter,
         D3D_FEATURE_LEVEL_11_0,
         IID_PPV_ARGS(&m_dxgiDevice)
@@ -103,13 +113,7 @@ bool DX12Triangle::initialize( void* _wnd, Nix::IArchieve* ) {
             return false;
         }
     }
-    // 9. create command list
-    // create the command list with the first allocator
-    rst = m_dxgiDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocators[0], NULL, IID_PPV_ARGS(&m_commandList));
-    if (FAILED(rst)) {
-        return false;
-    }
-    m_commandList->Close();
+   
 
     // create the fences
     for (int i = 0; i < MaxFlightCount; i++) {
@@ -135,7 +139,8 @@ bool DX12Triangle::initialize( void* _wnd, Nix::IArchieve* ) {
 		rootSigDesc.pStaticSamplers = nullptr;
 	}
 	ID3DBlob* signature = nullptr;
-	rst = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1, &signature, nullptr);
+	ID3DBlob* error;
+	rst = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1, &signature, &error);
 	if (FAILED(rst)) {
 		return false;
 	}
@@ -147,7 +152,7 @@ bool DX12Triangle::initialize( void* _wnd, Nix::IArchieve* ) {
 	ID3DBlob* fragmentShader = nullptr;
 	ID3DBlob* errorBuff = nullptr;
 	rst = D3DCompileFromFile(
-		L"shaders/triangle/vertexShader.hlsl", 
+		L"../../../../bin/shaders/triangle/vertexShader.hlsl", 
 		nullptr, nullptr, 
 		"main", 
 		"vs_5_0", 
@@ -162,13 +167,13 @@ bool DX12Triangle::initialize( void* _wnd, Nix::IArchieve* ) {
 	}
 
 	rst = D3DCompileFromFile(
-		L"shaders/triangle/fragmentShader.hlsl",
+		L"../../../../bin/shaders/triangle/FragmentShader.hlsl",
 		nullptr, nullptr,
 		"main",
-		"vs_5_0",
+		"ps_5_0",
 		D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION,
 		0,
-		&vertexShader,
+		&fragmentShader,
 		&errorBuff
 	);
 	if (FAILED(rst)) {
@@ -194,11 +199,6 @@ bool DX12Triangle::initialize( void* _wnd, Nix::IArchieve* ) {
 		inputLayoutDesc.NumElements = 1;
 		inputLayoutDesc.pInputElementDescs = &inputLayout[0];
 	}
-
-	D3D12_DEPTH_STENCIL_DESC depthStencil = {}; {
-		depthStencil.BackFace.
-	}
-
 	DXGI_SAMPLE_DESC sampleDesc = {}; {
 		sampleDesc.Count = 1;
 	}
@@ -207,41 +207,66 @@ bool DX12Triangle::initialize( void* _wnd, Nix::IArchieve* ) {
 		auto& desc = pipelineStateDesc;
 		desc.InputLayout = inputLayoutDesc;
 		desc.pRootSignature = m_pipelineRootSignature;
-		desc.PS = pixelShaderBytecode;
 		desc.VS = vertexShaderBytecode;
-		desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-		desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+		desc.PS = pixelShaderBytecode;
 		desc.SampleDesc = sampleDesc;
-		desc.SampleMask = 0xffffffff;
-		desc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
 		desc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+		desc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+		desc.DepthStencilState.DepthEnable = false;
+		desc.DepthStencilState.StencilEnable = false;
+		desc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+		desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+		desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
 		desc.NumRenderTargets = 1;
 	}
-
 	rst = m_dxgiDevice->CreateGraphicsPipelineState(&pipelineStateDesc, IID_PPV_ARGS(&m_pipelineStateObject));
 	if (FAILED(rst)) {
 		return false;
 	}
 
+	// 9. create command list
+	// create the command list with the first allocator
+	rst = m_dxgiDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocators[0], m_pipelineStateObject, IID_PPV_ARGS(&m_commandList));
+	if (FAILED(rst)) {
+		return false;
+	}
+	m_commandList->Close();
+
+	// a triangle
+
+	struct Vertex {
+		DirectX::XMFLOAT3 pos;
+	};
+
 	Vertex vList[] = {
-	   { { 0.0f, 0.5f, 0.5f } },
-	   { { 0.5f, -0.5f, 0.5f } },
-	   { { -0.5f, -0.5f, 0.5f } },
+		{ { 0.0f, 0.5f, 0.5f } },
+		{ { 0.5f, -0.5f, 0.5f } },
+		{ { -0.5f, -0.5f, 0.5f } },
 	};
 
 	int vBufferSize = sizeof(vList);
 
+	// create default heap
+	// default heap is memory on the GPU. Only the GPU has access to this memory
+	// To get data into this heap, we will have to upload the data using
+	// an upload heap
 	m_dxgiDevice->CreateCommittedResource(
 		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT), // a default heap
 		D3D12_HEAP_FLAG_NONE, // no flags
 		&CD3DX12_RESOURCE_DESC::Buffer(vBufferSize), // resource description for a buffer
-		D3D12_RESOURCE_STATE_COPY_DEST,
+		D3D12_RESOURCE_STATE_COPY_DEST, // we will start this heap in the copy destination state since we will copy data
+										// from the upload heap to this heap
 		nullptr, // optimized clear value must be null for this type of resource. used for render targets and depth/stencil buffers
-		IID_PPV_ARGS(&this->m_vertexBuffer)
-	);
+		IID_PPV_ARGS(&m_vertexBuffer));
 
+	// we can give resource heaps a name so when we debug with the graphics debugger we know what resource we are looking at
+	m_vertexBuffer->SetName(L"Vertex Buffer Resource Heap");
+
+	// create upload heap
+	// upload heaps are used to upload data to the GPU. CPU can write to it, GPU can read from it
+	// We will upload the vertex buffer using this heap to the default heap
 	ID3D12Resource* vBufferUploadHeap;
-	device->CreateCommittedResource(
+	m_dxgiDevice->CreateCommittedResource(
 		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD), // upload heap
 		D3D12_HEAP_FLAG_NONE, // no flags
 		&CD3DX12_RESOURCE_DESC::Buffer(vBufferSize), // resource description for a buffer
@@ -250,57 +275,63 @@ bool DX12Triangle::initialize( void* _wnd, Nix::IArchieve* ) {
 		IID_PPV_ARGS(&vBufferUploadHeap));
 	vBufferUploadHeap->SetName(L"Vertex Buffer Upload Resource Heap");
 
-	// we can give resource heaps a name so when we debug with the graphics debugger we know what resource we are looking at
-	m_vertexBuffer->SetName(L"Vertex Buffer Resource Heap");
+	m_commandAllocators[m_flightIndex]->Reset();
+	m_commandList->Reset(m_commandAllocators[m_flightIndex], m_pipelineStateObject);
 
 	// store vertex buffer in upload heap
 	D3D12_SUBRESOURCE_DATA vertexData = {};
 	vertexData.pData = reinterpret_cast<BYTE*>(vList); // pointer to our vertex array
 	vertexData.RowPitch = vBufferSize; // size of all our triangle vertex data
 	vertexData.SlicePitch = vBufferSize; // also the size of our triangle vertex data
-
-	// we are now creating a command with the command list to copy the data from
-	// the upload heap to the default heap
-	UpdateSubresources(m_commandList, m_vertexBuffer, vBufferUploadHeap, 0, 0, 1, &vertexData);
+										 // we are now creating a command with the command list to copy the data from
+										 // the upload heap to the default heap
+	UpdateSubresources( m_commandList, m_vertexBuffer, vBufferUploadHeap, 0, 0, 1, &vertexData);
 
 	// transition the vertex buffer data from copy destination state to vertex buffer state
-	m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(vertexBuffer, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER));
+	m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_vertexBuffer, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER));
 
 	// Now we execute the command list to upload the initial assets (triangle data)
 	m_commandList->Close();
 	ID3D12CommandList* ppCommandLists[] = { m_commandList };
-	this->m_commandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
+	m_commandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
 
+	// increment the fence value now, otherwise the buffer might not be uploaded by the time we start drawing
+	++m_fenceValue[m_flightIndex];
+	rst = m_commandQueue->Signal(m_fence[m_flightIndex], m_fenceValue[m_flightIndex]);
+	if (FAILED(rst)) {
+		m_running = false;
+	}
 	// create a vertex buffer view for the triangle. We get the GPU memory address to the vertex pointer using the GetGPUVirtualAddress() method
 	m_vertexBufferView.BufferLocation = m_vertexBuffer->GetGPUVirtualAddress();
-	m_vertexBufferView.StrideInBytes = sizeof(float)*3;
+	m_vertexBufferView.StrideInBytes = sizeof(Vertex);
 	m_vertexBufferView.SizeInBytes = vBufferSize;
+	//
 
-	// Fill out the Viewport
-	m_viewport.TopLeftX = 0;
-	m_viewport.TopLeftY = 0;
-	m_viewport.Width = Width;
-	m_viewport.Height = Height;
-	m_viewport.MinDepth = 0.0f;
-	m_viewport.MaxDepth = 1.0f;
-
-	// Fill out a scissor rect
-	m_scissor.left = 0;
-	m_scissor.top = 0;
-	m_scissor.right = Width;
-	m_scissor.bottom = Height;
 
 	return true;
 }
     
 void DX12Triangle::resize(uint32_t _width, uint32_t _height) {
     {// re-create the swapchain!
+	 // Fill out the Viewport
+		m_viewport.TopLeftX = 0;
+		m_viewport.TopLeftY = 0;
+		m_viewport.Width = _width;
+		m_viewport.Height = _height;
+		m_viewport.MinDepth = 0.0f;
+		m_viewport.MaxDepth = 1.0f;
+
+		// Fill out a scissor rect
+		m_scissor.left = 0;
+		m_scissor.top = 0;
+		m_scissor.right = _width;
+		m_scissor.bottom = _height;
         if (!this->m_swapchain) {
 			//
 			DXGI_MODE_DESC displayModeDesc = {}; {
 				displayModeDesc.Width = _width;
 				displayModeDesc.Height = _height;
-				displayModeDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM; // ���ü��֧�ֲ�֧����
+				displayModeDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM; // 不需要提前获取支持什么格式？ 对于vk来说是必走流程
 			}
 			DXGI_SAMPLE_DESC sampleDesc = {}; {
 				sampleDesc.Count = 1;
@@ -412,7 +443,7 @@ void DX12Triangle::tick() {
         if (FAILED(rst)) {
             m_running = false;
         }
-        rst = m_commandList->Reset(commandAllocator, NULL);
+        rst = m_commandList->Reset(commandAllocator, m_pipelineStateObject);
         if (FAILED(rst)) {
             m_running = false;
         }
@@ -426,14 +457,21 @@ void DX12Triangle::tick() {
 			barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
 		}
         m_commandList->ResourceBarrier(1, &barrier);
-		D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = {}; {
-			rtvHandle.ptr = m_rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart().ptr + m_flightIndex * m_rtvDescriptorSize;
-		}
+		CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), m_flightIndex, m_rtvDescriptorSize);
 		m_commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
         const float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
         // clear color
         m_commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
         // transfrom the render target's layout
+
+		m_commandList->SetGraphicsRootSignature(m_pipelineRootSignature);
+		m_commandList->SetPipelineState(m_pipelineStateObject);
+		m_commandList->RSSetViewports(1, &m_viewport);
+		m_commandList->RSSetScissorRects(1, &m_scissor);
+		m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		m_commandList->IASetVertexBuffers(0, 1, &m_vertexBufferView);
+		m_commandList->DrawInstanced(3, 1, 0, 0); // finally draw 3 vertices (draw the triangle)
+
 		std::swap(barrier.Transition.StateAfter, barrier.Transition.StateBefore);
         m_commandList->ResourceBarrier(1, &barrier);
         //
@@ -448,12 +486,13 @@ void DX12Triangle::tick() {
         // queue is being executed on the GPU
 		// Signal : Updates a fence to a specified value.
 		// 队列执行完会给这个fence一个新的值
-        HRESULT rst = m_commandQueue->Signal(m_fence[m_flightIndex], ++m_fenceValue[m_flightIndex]);
+		++m_fenceValue[m_flightIndex];
+        HRESULT rst = m_commandQueue->Signal(m_fence[m_flightIndex], m_fenceValue[m_flightIndex]);
         if (FAILED(rst)) {
             m_running = false;
         }
         // present the current backbuffer
-        rst = m_swapchain->Present(0, 0);
+        rst = m_swapchain->Present(1, 0);
         if (FAILED(rst)) {
             m_running = false;
         }
@@ -461,7 +500,7 @@ void DX12Triangle::tick() {
 }
 
 const char * DX12Triangle::title() {
-    return "DX12 Clear Screen";
+    return "DX12 Triangle";
 }
 	
 uint32_t DX12Triangle::rendererType() {
