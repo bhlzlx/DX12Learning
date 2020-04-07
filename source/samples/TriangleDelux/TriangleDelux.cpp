@@ -1,30 +1,11 @@
-﻿#include "DX12Triangle.h"
+﻿#include "TriangleDelux.h"
 #include <d3dcompiler.h>
 #include "d3dx12.h"
 #include <DirectXMath.h>
 #include <wrl/client.h>
 #include <nix/io/archive.h>
 
-
-const char vertexShader[] = R"(
-float4 main(float3 pos : POSITION) : SV_POSITION
-{
-	// just pass vertex position straight through
-	return float4(pos, 1.0f);
-}
-)";
-
-const char fragmentShader[] = R"(
-float4 main() : SV_TARGET
-{
-    // return green
-    return float4(0.0f, 1.0f, 0.0f, 1.0f);
-}
-)";
-
-// #include "d3dx12.h"
-
-bool DX12Triangle::initialize( void* _wnd, Nix::IArchive* _arch ) {
+bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
 
 	if (!_wnd || !_arch) {
 		return false;
@@ -331,7 +312,7 @@ bool DX12Triangle::initialize( void* _wnd, Nix::IArchive* _arch ) {
 	return true;
 }
     
-void DX12Triangle::resize(uint32_t _width, uint32_t _height) {
+void TriangleDelux::resize(uint32_t _width, uint32_t _height) {
     {// re-create the swapchain!
 	 // Fill out the Viewport
 		m_viewport.TopLeftX = 0;
@@ -397,29 +378,13 @@ void DX12Triangle::resize(uint32_t _width, uint32_t _height) {
 					WaitForSingleObject(m_fenceEvent, INFINITE);
 				}
 			}
-			m_swapchain->ResizeBuffers(MaxFlightCount, _width, _height, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH);
-			this->m_flightIndex = m_swapchain->GetCurrentBackBufferIndex();
-
-			// 7. create render targets & render target view
-			// Create a RTV for each buffer (double buffering is two buffers, tripple buffering is 3).
-			D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = m_rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
-			for (int i = 0; i < MaxFlightCount; i++) {
-				// first we get the n'th buffer in the swap chain and store it in the n'th
-				// position of our ID3D12Resource array
-				HRESULT rst = m_swapchain->GetBuffer(i, IID_PPV_ARGS(&m_renderTargets[i]));
-				if (FAILED(rst)) {
-					return;
-				}
-				// the we "create" a render target view which binds the swap chain buffer (ID3D12Resource[n]) to the rtv handle
-				m_dxgiDevice->CreateRenderTargetView(m_renderTargets[i], nullptr, { rtvHandle.ptr + m_rtvDescriptorSize * i });
-			}
 		}
     }        
 
     printf("resized!");
 }
 
-void DX12Triangle::release() {
+void TriangleDelux::release() {
 	for (uint32_t flightIndex = 0; flightIndex < MaxFlightCount; ++flightIndex) {
 		if (m_fence[flightIndex]->GetCompletedValue() < m_fenceValue[flightIndex]) {
             HRESULT rst;
@@ -452,7 +417,7 @@ void DX12Triangle::release() {
     printf("destroyed");
 }
 
-void DX12Triangle::tick() {
+void TriangleDelux::tick() {
     if (!m_swapchain) {
         return;
     }
@@ -535,15 +500,15 @@ void DX12Triangle::tick() {
     }
 }
 
-const char * DX12Triangle::title() {
+const char * TriangleDelux::title() {
     return "DX12 Triangle";
 }
 	
-uint32_t DX12Triangle::rendererType() {
+uint32_t TriangleDelux::rendererType() {
 	return 0;
 }
 
-DX12Triangle theapp;
+TriangleDelux theapp;
 
 NixApplication* GetApplication() {
     return &theapp;

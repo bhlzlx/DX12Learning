@@ -7,8 +7,8 @@ include_directories(
 project( nix )
 
 set( NIX_SOURCE 
-    ${CMAKE_CURRENT_SOURCE_DIR}/io/archieve.h
-    ${CMAKE_CURRENT_SOURCE_DIR}/io/archieve.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/io/archive.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/io/archive.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/string/encoding.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/string/path.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/memory/BuddySystemAllocator.cpp

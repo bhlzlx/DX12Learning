@@ -1,7 +1,7 @@
 #include <windows.h>
 #include "Resource.h"
 #include <NixApplication.h>
-#include <Nix/io/archieve.h>
+#include <Nix/io/archive.h>
 #include <string>
 #include <regex>
 

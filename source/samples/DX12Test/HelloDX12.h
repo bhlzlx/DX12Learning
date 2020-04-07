@@ -30,7 +30,7 @@ private:
     bool                    m_running;
 
 public:
-	virtual bool initialize(void* _wnd, Nix::IArchieve*);
+	virtual bool initialize(void* _wnd, Nix::IArchive*);
 	virtual void resize(uint32_t _width, uint32_t _height);
 	virtual void release();
 	virtual void tick();
