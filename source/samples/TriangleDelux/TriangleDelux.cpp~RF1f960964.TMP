@@ -1,6 +1,6 @@
 ﻿#include "TriangleDelux.h"
 #include <d3dcompiler.h>
-#include <d3dx12.h>
+#include 《d3dx12.h"
 #include <DirectXMath.h>
 #include <wrl/client.h>
 #include <nix/io/archive.h>

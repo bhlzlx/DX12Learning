@@ -6,7 +6,7 @@ namespace Nix
 {
     class StdFile: public IFile
     {
-        friend class StdArchieve;
+        friend class StdArchive;
     private:
         FILE* _handle = nullptr;
 		size_t _size = 0;
@@ -232,7 +232,7 @@ namespace Nix
         }
     };
 
-    class StdArchieve: public IArchive
+    class StdArchive: public IArchive
     {
     friend IArchive* CreateStdArchieve( const std::string& _path );
     private:
@@ -248,7 +248,7 @@ namespace Nix
         //
     };
 
-	IFile* StdArchieve::open(const std::string& _path, uint8_t _memoryMode)
+	IFile* StdArchive::open(const std::string& _path, uint8_t _memoryMode)
 	{
 		std::string fullpath = _root;
 		fullpath.append(_path);
@@ -277,7 +277,7 @@ namespace Nix
 		return nullptr;
     }
 
-	bool StdArchieve::save(const std::string& _path, const void * _data, size_t _length) {
+	bool StdArchive::save(const std::string& _path, const void * _data, size_t _length) {
 		std::string fullpath = _root;
 		fullpath.append(_path);
 		auto path = FormatFilePath(fullpath);
@@ -290,14 +290,14 @@ namespace Nix
 		return true;
 	}
 
-    void StdArchieve::release()
+    void StdArchive::release()
     {
         delete this;
     }
 
     IArchive* CreateStdArchieve( const std::string& _path )
     {
-        StdArchieve* arch = new StdArchieve();
+        StdArchive* arch = new StdArchive();
         arch->_root = FormatFilePath(_path);
 		arch->_root.push_back('/');
         return arch;

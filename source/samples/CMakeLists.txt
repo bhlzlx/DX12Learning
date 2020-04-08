@@ -42,11 +42,12 @@ else()
     if( WIN32 )
 	
 		add_definitions(-DUNICODE -D_UNICODE)
-	
+		add_subdirectory( DX12Wrapper )
         add_subdirectory( DX12Test )
 		add_subdirectory( DX12Triangle )
 		add_subdirectory( TriangleDelux )
 		
+		SET_PROPERTY(TARGET DX12Wrapper PROPERTY FOLDER "Samples")
 		SET_PROPERTY(TARGET TriangleDelux PROPERTY FOLDER "Samples")
         SET_PROPERTY(TARGET HelloDX12 PROPERTY FOLDER "Samples")
 		SET_PROPERTY(TARGET DX12Triangle PROPERTY FOLDER "Samples")

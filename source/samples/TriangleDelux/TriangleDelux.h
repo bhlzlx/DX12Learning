@@ -7,20 +7,6 @@
 #include <algorithm>
 #include "NixRenderer.h"
 
-class DriverDX12 {
-private:
-	IDXGIFactory4*				m_dxgiFactory;
-	IDXGIAdapter1*				m_dxgiAdapter;
-public:
-	virtual bool initialize(Nix::IArchive* _arch, Nix::DeviceType _type) = 0;
-	virtual void release() = 0;
-	virtual IContext* createContext(void* _hwnd) = 0;
-	virtual Nix::IArchive* getArchieve() = 0;
-	virtual Nix::IArchive* getLogger() = 0;
-	virtual Nix::NixFormat selectDepthFormat(bool _highP = true) = 0;
-	virtual bool checkFormatSupport( Nix::NixFormat _format, Nix::FormatFeatureFlags _flags) = 0;
-};
-
 constexpr uint32_t MaxFlightCount = 2;
 
 class TriangleDelux : public NixApplication {

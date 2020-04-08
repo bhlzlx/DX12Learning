@@ -1,0 +1,14 @@
+project( DX12Wrapper )
+
+set( PROJECT_SOURCE
+    ${CMAKE_CURRENT_SOURCE_DIR}/DriverDX12.cpp
+)
+
+set ( PROJECT_HEADER 
+   ${CMAKE_CURRENT_SOURCE_DIR}/DriverDX12.h
+)
+
+add_library( DX12Wrapper STATIC
+    ${PROJECT_SOURCE}
+	${PROJECT_HEADER}
+)
