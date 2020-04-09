@@ -12,58 +12,10 @@ bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
 	}
 	m_archive = _arch;
 
-	UINT dxgiFactoryFlags = 0;
-
-#if defined(_DEBUG)
-	// Enable the debug layer (requires the Graphics Tools "optional feature").
-	// NOTE: Enabling the debug layer after device creation will invalidate the active device.
-	{
-		ID3D12Debug* debugController;
-		if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController))))
-		{
-			debugController->EnableDebugLayer();
-
-			// Enable additional debug layers.
-			dxgiFactoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
-		}
-	}
-#endif
-
-	// 1. create factory
-	HRESULT factoryHandle = CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&m_dxgiFactory));
-	if (FAILED(factoryHandle)) {
+	if(!this->m_device.initialize()){
 		return false;
 	}
-    // 2.  enum all GPU devices and select a GPU that support DX12
-	int adapterIndex = 0;
-	bool adapterFound = false;
-    while (m_dxgiFactory->EnumAdapters1(adapterIndex, &m_dxgiAdapter) != DXGI_ERROR_NOT_FOUND) {
-        DXGI_ADAPTER_DESC1 desc;
-        m_dxgiAdapter->GetDesc1(&desc);
-        if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) { // if it's software
-            ++adapterIndex;
-            continue;
-        }
-        // test it can create a device that support dx12 or not
-        HRESULT rst = D3D12CreateDevice(m_dxgiAdapter, D3D_FEATURE_LEVEL_11_0, _uuidof(ID3D12Device), nullptr );
-        if (SUCCEEDED(rst)) {
-            adapterFound = true;
-            break;
-        }
-        ++adapterIndex;
-    }
-    if (!adapterFound) {
-        return false;
-    }
-    // 3. create the device
-	HRESULT rst = D3D12CreateDevice(
-        m_dxgiAdapter,
-        D3D_FEATURE_LEVEL_11_0,
-        IID_PPV_ARGS(&m_dxgiDevice)
-    );
-    if (FAILED(rst)){
-        return false;
-    }
+	
 
     // 4. create command queue
     D3D12_COMMAND_QUEUE_DESC cmdQueueDesc; {

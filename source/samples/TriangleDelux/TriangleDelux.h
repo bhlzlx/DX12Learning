@@ -13,18 +13,20 @@ using namespace Microsoft::WRL;
 
 class DeviceDX12 {
 private:
-    ComPtr<ID3D12Debug>             m_debugController;
-    ComPtr<IDXGIFactory4>           m_factory;
-    //      
-    ComPtr<IDXGIAdapter>            m_warpAdapter;
-    ComPtr<IDXGIAdapter1>           m_hardwareAdapter;
-    //      
-    ComPtr<ID3D12Device>            m_device;
+    ComPtr<ID3D12Debug>                 m_debugController;
+    ComPtr<IDXGIFactory4>               m_factory;
+    //          
+    ComPtr<IDXGIAdapter>                m_warpAdapter;
+    ComPtr<IDXGIAdapter1>               m_hardwareAdapter;
+    //          
+    ComPtr<ID3D12Device>                m_device;
     //
-    ComPtr<ID3D12CommandQueue>      m_commandQueue;
-    ComPtr<ID3D12CommandList>       m_commandLists[MaxFlightCount];
-    ComPtr<ID3D12CommandAllocator>  m_commandAllocators[MaxFlightCount];
+    ComPtr<ID3D12CommandQueue>          m_commandQueue;
+    ComPtr<ID3D12GraphicsCommandList>   m_commandLists[MaxFlightCount];
+    ComPtr<ID3D12CommandAllocator>      m_commandAllocators[MaxFlightCount];
     //
+    ComPtr<ID3D12Fence>                 m_fences[MaxFlightCount];
+    uint64_t                            m_fenceValues[MaxFlightCount];
 public:
     DeviceDX12() {
 
@@ -88,6 +90,9 @@ public:
             m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_commandAllocators[i]));
             // Create command list
             m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocators[i].Get(), nullptr, IID_PPV_ARGS(&m_commandLists[i]));
+            // Create fences & initialize fence values
+            m_device->CreateFence( 0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fences[i]));
+            m_fenceValues[i] = 0;
         }
 
         return true;
@@ -122,42 +127,81 @@ public:
         return finalSwapchain;
     }
 
+    ComPtr<ID3D12CommandList> onTick( uint64_t _dt, uint32_t _flightIndex ) {
+        HRESULT rst;
+        auto& cmdAllocator = m_commandAllocators[_flightIndex];
+        auto& cmdList = m_commandLists[_flightIndex];
+        cmdAllocator->Reset();
+        rst = cmdList->Reset( cmdAllocator.Get(), nullptr );
+        if( FAILED(rst)) {
+            return nullptr;
+        }
+        return cmdList;
+    }
+
     operator ComPtr<ID3D12Device> () {
         return m_device;
     }
 };
 
+class SwapchainDX12 {
+private:
+    ComPtr<ID3D12Device>            m_device;
+    // HWND                            m_hwnd;
+    ComPtr<IDXGISwapChain3>         m_swapchain;
+    ComPtr<ID3D12Resource>          m_renderTargets[MaxFlightCount];
+    ComPtr<ID3D12DescriptorHeap>    m_renderTargetViewHeap;
+    uint32_t                        m_rtvDescriptorSize;
+public:
+    SwapchainDX12( ComPtr<ID3D12Device> _device, ComPtr<IDXGISwapChain3>&& _swapchain ){
+        m_swapchain = std::move(_swapchain );
+        m_device = _device;
+    }
+    //
+    bool initialize(){
+        HRESULT rst = 0;
+        // Create render target view heap
+        D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc = {};
+        rtvHeapDesc.NumDescriptors = MaxFlightCount;
+        rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+        rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+        rst = m_device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_renderTargetViewHeap));
+        if( FAILED(rst)){
+            return false;
+        }
+        // Get the descriptor's size
+        m_rtvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+        // Create render target view with the heap
+        CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle( m_renderTargetViewHeap->GetCPUDescriptorHandleForHeapStart() );
+        for( uint32_t i = 0; i<MaxFlightCount; ++i) {
+            rst = m_swapchain->GetBuffer( i, IID_PPV_ARGS(&m_renderTargets[i]));
+            if( FAILED(rst)){
+                return false;
+            }
+            m_device->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, rtvHandle);
+            rtvHandle.Offset(1, m_rtvDescriptorSize);
+        }
+        return true;
+    }
+};
+
 class TriangleDelux : public NixApplication {
 private:
-	Nix::IArchive*				m_archive;
-    DeviceDX12                  m_device;
-	//
-    void*						m_hwnd;
-    IDXGIFactory4*				m_dxgiFactory;
-    IDXGIAdapter1*				m_dxgiAdapter;
-    ID3D12Device*				m_dxgiDevice;
-    ID3D12CommandQueue*			m_commandQueue;
-    IDXGISwapChain3*			m_swapchain;
-    uint32_t					m_flightIndex;
+	Nix::IArchive*				    m_archive;
+    DeviceDX12                      m_device;
+	//  
+    void*						    m_hwnd;
+    IDXGISwapChain3*			    m_swapchain;
+    uint32_t					    m_flightIndex;
     //
-    ID3D12DescriptorHeap*		m_rtvDescriptorHeap;
-    uint32_t					m_rtvDescriptorSize;
-    ID3D12Resource*				m_renderTargets[MaxFlightCount];
-    ID3D12CommandAllocator*		m_commandAllocators[MaxFlightCount];
-    ID3D12GraphicsCommandList*  m_commandList;
-    ID3D12Fence*				m_fence[MaxFlightCount];
+    ComPtr<ID3D12DescriptorHeap>    m_pipelineDescriptorHeap;
     //
-    HANDLE						m_fenceEvent;
-    UINT64						m_fenceValue[MaxFlightCount];
-    bool						m_running;
-
-	//
-	ID3D12PipelineState*		m_pipelineStateObject;
-	ID3D12RootSignature*		m_pipelineRootSignature;
-	D3D12_VIEWPORT				m_viewport;
-	D3D12_RECT					m_scissor;
-	ID3D12Resource*				m_vertexBuffer;
-	D3D12_VERTEX_BUFFER_VIEW	m_vertexBufferView;
+	ID3D12PipelineState*		    m_pipelineStateObject;
+	ID3D12RootSignature*		    m_pipelineRootSignature;
+	D3D12_VIEWPORT				    m_viewport;
+	D3D12_RECT					    m_scissor;
+	ID3D12Resource*				    m_vertexBuffer;
+	D3D12_VERTEX_BUFFER_VIEW	    m_vertexBufferView;
 
 public:
 	virtual bool initialize(void* _wnd, Nix::IArchive*);
