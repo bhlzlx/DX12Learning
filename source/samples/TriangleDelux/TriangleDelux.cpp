@@ -15,19 +15,8 @@ bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
 	if(!this->m_device.initialize()){
 		return false;
 	}
-	
-
-    // 4. create command queue
-    D3D12_COMMAND_QUEUE_DESC cmdQueueDesc; {
-        cmdQueueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-        cmdQueueDesc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
-        cmdQueueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-        cmdQueueDesc.NodeMask = 0;
-    }
-    rst = m_dxgiDevice->CreateCommandQueue(&cmdQueueDesc, IID_PPV_ARGS(&m_commandQueue));
-    if (FAILED(rst)) {
-        return false;
-    }
+	//
+	m_device.createSwapchain( (HWND)_wnd, 320, 240  );
     // 5. swapchain / when windows is resize
     this->m_hwnd = _wnd;// handle of the window
 
@@ -38,55 +27,77 @@ bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
         rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
         rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
     }
-       
-    rst = m_dxgiDevice->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_rtvDescriptorHeap));
-    if (FAILED(rst)) {
-        return false;
-    }
-    m_rtvDescriptorSize = m_dxgiDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+	ComPtr<ID3D12Device> device = (ComPtr<ID3D12Device>)m_device;
 
-    // 8. create command allocators
-    for (int i = 0; i < MaxFlightCount; i++) {
-        rst = m_dxgiDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_commandAllocators[i]));
-        if (FAILED(rst)) {
-            return false;
-        }
-    }
-   
+	HRESULT rst = 0;
 
-    // create the fences
-    for (int i = 0; i < MaxFlightCount; i++) {
-        rst = m_dxgiDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence[i]));
-        if (FAILED(rst)) {
-            return false;
-        }
-        m_fenceValue[i] = 0; // set the initial fence value to 0
-    }
-
-    // create a handle to a fence event
-    m_fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-    if (m_fenceEvent == nullptr) {
-        return false;
-    }
-	//
-
-	D3D12_ROOT_SIGNATURE_DESC rootSigDesc = {}; {
-		rootSigDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
-		rootSigDesc.NumParameters = 0; // 这个例子不需要传任何资源（ uniform / sampler / texture ）
-		rootSigDesc.NumStaticSamplers = 0;
-		rootSigDesc.pParameters = nullptr;
-		rootSigDesc.pStaticSamplers = nullptr;
+	D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};{
+        srvHeapDesc.NumDescriptors = 1;
+        srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        rst = device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_pipelineDescriptorHeap));
+		if( FAILED(rst)) {
+			return false;
+		}
 	}
+
+	CD3DX12_DESCRIPTOR_RANGE1 vertexDescriptorRanges[1];{
+		vertexDescriptorRanges[2].Init( D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
+	}
+
+	CD3DX12_DESCRIPTOR_RANGE1 pixelDescriptorRanges[2];{
+		// uniform buffer
+		pixelDescriptorRanges[0].Init(
+			D3D12_DESCRIPTOR_RANGE_TYPE_SRV,				// descriptor type
+			1,												// descriptor count
+			0,												// base shader register
+			0,												// register space
+			D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC			// descriptor data type
+		);
+		// sampler & texture
+		pixelDescriptorRanges[1].Init(
+			D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER,			// descriptor type
+			1,												// descriptor count
+			0,												// base shader register
+			0,												// register space
+			D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC			// descriptor data type
+		);
+	}
+
+	constexpr int vertexRangeCount = sizeof(vertexDescriptorRanges)/sizeof(CD3DX12_DESCRIPTOR_RANGE1);
+	constexpr int pixelRangeCount = sizeof(pixelDescriptorRanges)/sizeof(CD3DX12_DESCRIPTOR_RANGE1);
+	//
+	CD3DX12_ROOT_PARAMETER1 rootParameters[2];{
+		rootParameters[0].InitAsDescriptorTable( vertexRangeCount , &vertexDescriptorRanges[0], D3D12_SHADER_VISIBILITY_VERTEX );
+		rootParameters[1].InitAsDescriptorTable( pixelRangeCount , &pixelDescriptorRanges[0], D3D12_SHADER_VISIBILITY_PIXEL );
+	}
+
+	CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc {};{
+		rootSignatureDesc.Init_1_1( 2, rootParameters, 0, nullptr );
+	}
+
+	ComPtr<ID3DBlob> signature;
+	ComPtr<ID3DBlob> error;
+
+	// Create root signature
+	D3D12_FEATURE_DATA_ROOT_SIGNATURE featureData = {};
+	// This is the highest version the sample supports. If CheckFeatureSupport succeeds, the HighestVersion returned will not be greater than this.
+	featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
+	if ( FAILED(device->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData)))) {
+		featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
+	}
+	//
 	ID3DBlob* signature = nullptr;
 	ID3DBlob* error;
-	rst = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1, &signature, &error);
+	rst = D3DX12SerializeVersionedRootSignature( &rootSignatureDesc, featureData.HighestVersion, &signature, &error);
 	if (FAILED(rst)) {
 		return false;
 	}
-	rst = m_dxgiDevice->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_pipelineRootSignature));
+	rst = device->CreateRootSignature( 0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_pipelineRootSignature));
 	if (FAILED(rst)) {
 		return false;
 	}
+	//
 	ID3DBlob* vertexShader = nullptr;
 	ID3DBlob* fragmentShader = nullptr;
 	ID3DBlob* errorBuff = nullptr;
@@ -464,4 +475,4 @@ TriangleDelux theapp;
 
 NixApplication* GetApplication() {
     return &theapp;
-}
+}s

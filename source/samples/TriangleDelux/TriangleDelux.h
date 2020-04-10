@@ -26,6 +26,7 @@ private:
     ComPtr<ID3D12CommandAllocator>      m_commandAllocators[MaxFlightCount];
     //
     ComPtr<ID3D12Fence>                 m_fences[MaxFlightCount];
+    HANDLE                              m_fenceEvent;
     uint64_t                            m_fenceValues[MaxFlightCount];
 public:
     DeviceDX12() {
@@ -95,6 +96,9 @@ public:
             m_fenceValues[i] = 0;
         }
 
+        // Create fence event
+        m_fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+
         return true;
     }
 
@@ -141,47 +145,6 @@ public:
 
     operator ComPtr<ID3D12Device> () {
         return m_device;
-    }
-};
-
-class SwapchainDX12 {
-private:
-    ComPtr<ID3D12Device>            m_device;
-    // HWND                            m_hwnd;
-    ComPtr<IDXGISwapChain3>         m_swapchain;
-    ComPtr<ID3D12Resource>          m_renderTargets[MaxFlightCount];
-    ComPtr<ID3D12DescriptorHeap>    m_renderTargetViewHeap;
-    uint32_t                        m_rtvDescriptorSize;
-public:
-    SwapchainDX12( ComPtr<ID3D12Device> _device, ComPtr<IDXGISwapChain3>&& _swapchain ){
-        m_swapchain = std::move(_swapchain );
-        m_device = _device;
-    }
-    //
-    bool initialize(){
-        HRESULT rst = 0;
-        // Create render target view heap
-        D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc = {};
-        rtvHeapDesc.NumDescriptors = MaxFlightCount;
-        rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-        rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-        rst = m_device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_renderTargetViewHeap));
-        if( FAILED(rst)){
-            return false;
-        }
-        // Get the descriptor's size
-        m_rtvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-        // Create render target view with the heap
-        CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle( m_renderTargetViewHeap->GetCPUDescriptorHandleForHeapStart() );
-        for( uint32_t i = 0; i<MaxFlightCount; ++i) {
-            rst = m_swapchain->GetBuffer( i, IID_PPV_ARGS(&m_renderTargets[i]));
-            if( FAILED(rst)){
-                return false;
-            }
-            m_device->CreateRenderTargetView(m_renderTargets[i].Get(), nullptr, rtvHandle);
-            rtvHandle.Offset(1, m_rtvDescriptorSize);
-        }
-        return true;
     }
 };
 
