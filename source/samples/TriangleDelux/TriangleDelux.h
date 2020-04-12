@@ -20,132 +20,58 @@ private:
     ComPtr<IDXGIAdapter1>               m_hardwareAdapter;
     //          
     ComPtr<ID3D12Device>                m_device;
-    //
-    ComPtr<ID3D12CommandQueue>          m_commandQueue;
-    ComPtr<ID3D12GraphicsCommandList>   m_commandLists[MaxFlightCount];
-    ComPtr<ID3D12CommandAllocator>      m_commandAllocators[MaxFlightCount];
+    // Graphics queue
+    ComPtr<ID3D12CommandQueue>          m_graphicsCommandQueue;
+    ComPtr<ID3D12GraphicsCommandList>   m_graphicsCommandLists[MaxFlightCount];
+    ComPtr<ID3D12CommandAllocator>      m_graphicsCommandAllocator[MaxFlightCount];
+    // Upload queue
+    ComPtr<ID3D12CommandQueue>          m_uploadQueue;
+    ComPtr<ID3D12CommandAllocator>      m_uploadCommandAllocator;
+    ComPtr<ID3D12GraphicsCommandList>   m_uploadCommandList;
     //
     ComPtr<ID3D12Fence>                 m_fences[MaxFlightCount];
-    HANDLE                              m_fenceEvent;
+    HANDLE                              m_graphicsFenceEvent;
     uint64_t                            m_fenceValues[MaxFlightCount];
+    bool                                m_running;
+    //
+    ComPtr<ID3D12Fence>                 m_uploadFence;
+    HANDLE                              m_uploadFenceEvent;
+    uint64_t                            m_uploadFenceValue;
+    uint32_t                            m_flightIndex;
 public:
     DeviceDX12() {
 
     }
 
-    bool initialize() {
-        uint32_t dxgiFactoryFlags = 0;
-#ifdef _DEBUG
-        {
-            if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&m_debugController)))) {
-                m_debugController->EnableDebugLayer();
-                // Enable additional debug layers.
-                dxgiFactoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
-            }
-        }
-#endif
-        HRESULT rst = 0;
-        ComPtr<IDXGIFactory4> factory;
-        rst = CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&factory));
-        //
-        if(FAILED(rst)){
-            return false;
-        }
-        // Get a high performence software adapter if you want!
-        // rst = factory->EnumWarpAdapter(IID_PPV_ARGS(&m_warpAdapter));
-        // if(FAILED(rst)){
-        //     return false;
-        // }
-        // Get a hardware adapter
-        for (UINT adapterIndex = 0; DXGI_ERROR_NOT_FOUND != factory->EnumAdapters1(adapterIndex, &m_hardwareAdapter); ++adapterIndex) {
-            DXGI_ADAPTER_DESC1 desc;
-            m_hardwareAdapter->GetDesc1(&desc);
-            if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) {
-                continue;
-            }
-            if (SUCCEEDED(D3D12CreateDevice(m_hardwareAdapter.Get(), D3D_FEATURE_LEVEL_11_0, _uuidof(ID3D12Device), nullptr))) {
-                break;
-            }
-        }
+    bool 
+    initialize();
 
-        // Create device with the adapter
-        rst = D3D12CreateDevice(
-            m_hardwareAdapter.Get(),
-            D3D_FEATURE_LEVEL_11_0,
-            IID_PPV_ARGS(&m_device)
-            );
-        if(FAILED(rst)){
-            return false;
-        }
-        // Create command queue
-        D3D12_COMMAND_QUEUE_DESC queueDesc = {};{
-            queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-            queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-        }
-        rst = m_device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_commandQueue));
-        if(FAILED(rst)){
-            return false;
-        }
-        // Create command allocator
-        for( uint32_t i = 0; i<MaxFlightCount; ++i){
-            m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_commandAllocators[i]));
-            // Create command list
-            m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocators[i].Get(), nullptr, IID_PPV_ARGS(&m_commandLists[i]));
-            // Create fences & initialize fence values
-            m_device->CreateFence( 0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fences[i]));
-            m_fenceValues[i] = 0;
-        }
+    ComPtr<IDXGISwapChain3> 
+    createSwapchain( HWND _hwnd, uint32_t _width, uint32_t _height );
 
-        // Create fence event
-        m_fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+    ComPtr<ID3D12GraphicsCommandList> 
+    onTick( uint64_t _dt, uint32_t _flightIndex );
 
-        return true;
-    }
+    void 
+    executeCommand( ComPtr<ID3D12GraphicsCommandList>& _commandList );
 
-    ComPtr<IDXGISwapChain3> createSwapchain( HWND _hwnd, uint32_t _width, uint32_t _height ) {
-        ComPtr<IDXGISwapChain1> swapchain;
-        DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {};{
-            swapChainDesc.BufferCount = MaxFlightCount;
-            swapChainDesc.Width = _width;
-            swapChainDesc.Height = _height;
-            swapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-            swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-            swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-            swapChainDesc.SampleDesc.Count = 1;
-        }
-        //
-        m_factory->CreateSwapChainForHwnd(
-        m_commandQueue.Get(),        // Swap chain needs the queue so that it can force a flush on it.
-        _hwnd,
-        &swapChainDesc,
-        nullptr,
-        nullptr,
-        &swapchain
-        );
-        HRESULT rst = m_factory->MakeWindowAssociation(_hwnd, DXGI_MWA_NO_ALT_ENTER);
-        if(FAILED(rst)){
-            return nullptr;
-        }
-        ComPtr<IDXGISwapChain3> finalSwapchain;
-        swapchain.As(&finalSwapchain);
-        return finalSwapchain;
-    }
+    void
+    waitForFlight( uint32_t _flight );
 
-    ComPtr<ID3D12CommandList> onTick( uint64_t _dt, uint32_t _flightIndex ) {
-        HRESULT rst;
-        auto& cmdAllocator = m_commandAllocators[_flightIndex];
-        auto& cmdList = m_commandLists[_flightIndex];
-        cmdAllocator->Reset();
-        rst = cmdList->Reset( cmdAllocator.Get(), nullptr );
-        if( FAILED(rst)) {
-            return nullptr;
-        }
-        return cmdList;
-    }
+    void
+    waitCopyQueue();
 
-    operator ComPtr<ID3D12Device> () {
-        return m_device;
-    }
+    ComPtr<ID3D12Resource>
+    createVertexBuffer( const void* _data, size_t _length );
+
+    void
+    uploadBuffer( ComPtr<ID3D12Resource> _vertexBuffer, const void* _data, size_t _length );
+
+    // Create a simple texture
+    ComPtr<ID3D12Resource>
+    createTexture();
+
+    operator ComPtr<ID3D12Device> () const;
 };
 
 class TriangleDelux : public NixApplication {
@@ -154,17 +80,24 @@ private:
     DeviceDX12                      m_device;
 	//  
     void*						    m_hwnd;
-    IDXGISwapChain3*			    m_swapchain;
+    ComPtr<IDXGISwapChain3>		    m_swapchain;
     uint32_t					    m_flightIndex;
     //
+    ComPtr<ID3D12DescriptorHeap>    m_rtvDescriptorHeap;
+    uint32_t                        m_rtvDescriptorSize;
     ComPtr<ID3D12DescriptorHeap>    m_pipelineDescriptorHeap;
+    ComPtr<ID3D12Resource>          m_renderTargets[MaxFlightCount];
     //
 	ID3D12PipelineState*		    m_pipelineStateObject;
 	ID3D12RootSignature*		    m_pipelineRootSignature;
 	D3D12_VIEWPORT				    m_viewport;
 	D3D12_RECT					    m_scissor;
-	ID3D12Resource*				    m_vertexBuffer;
-	D3D12_VERTEX_BUFFER_VIEW	    m_vertexBufferView;
+    // Resources
+	ComPtr<ID3D12Resource>		    m_vertexBuffer;
+	D3D12_VERTEX_BUFFER_VIEW	    m_vertexBufferView;    
+
+	ComPtr<ID3D12Resource>		    m_simpleTexture;
+    
 
 public:
 	virtual bool initialize(void* _wnd, Nix::IArchive*);

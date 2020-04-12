@@ -5,6 +5,349 @@
 #include <wrl/client.h>
 #include <nix/io/archive.h>
 
+bool DeviceDX12::initialize() {
+	uint32_t dxgiFactoryFlags = 0;
+#ifdef _DEBUG
+	{
+		if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&m_debugController)))) {
+			m_debugController->EnableDebugLayer();
+			// Enable additional debug layers.
+			dxgiFactoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
+		}
+	}
+#endif
+	HRESULT rst = 0;
+	ComPtr<IDXGIFactory4> factory;
+	rst = CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&factory));
+	//
+	if(FAILED(rst)){
+		return false;
+	}
+	// Get a high performence software adapter if you want!
+	// rst = factory->EnumWarpAdapter(IID_PPV_ARGS(&m_warpAdapter));
+	// if(FAILED(rst)){
+	//     return false;
+	// }
+	// Get a hardware adapter
+	for (UINT adapterIndex = 0; DXGI_ERROR_NOT_FOUND != factory->EnumAdapters1(adapterIndex, &m_hardwareAdapter); ++adapterIndex) {
+		DXGI_ADAPTER_DESC1 desc;
+		m_hardwareAdapter->GetDesc1(&desc);
+		if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) {
+			continue;
+		}
+		if (SUCCEEDED(D3D12CreateDevice(m_hardwareAdapter.Get(), D3D_FEATURE_LEVEL_11_0, _uuidof(ID3D12Device), nullptr))) {
+			break;
+		}
+	}
+
+	// Create device with the adapter
+	rst = D3D12CreateDevice(
+		m_hardwareAdapter.Get(),
+		D3D_FEATURE_LEVEL_11_0,
+		IID_PPV_ARGS(&m_device)
+		);
+	if(FAILED(rst)){
+		return false;
+	}
+	// Create graphics command queue
+	D3D12_COMMAND_QUEUE_DESC queueDesc = {};{
+		queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+		queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+	}
+	rst = m_device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_graphicsCommandQueue));
+	if(FAILED(rst)){
+		return false;
+	}
+	// Create graphics command allocator
+	for( uint32_t i = 0; i<MaxFlightCount; ++i){
+		m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_graphicsCommandAllocator[i]));
+		// Create graphics command list
+		m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_graphicsCommandAllocator[i].Get(), nullptr, IID_PPV_ARGS(&m_graphicsCommandLists[i]));
+		// Create fences & initialize fence values
+		m_device->CreateFence( 0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fences[i]));
+		m_fenceValues[i] = 0;
+	}
+	// Create graphics fence event
+	m_graphicsFenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+
+	// Create copy command queue, command list, command allocator, fence, fence event
+	queueDesc.Type = D3D12_COMMAND_LIST_TYPE_COPY;
+	rst = m_device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_uploadQueue));
+	if(FAILED(rst)) {
+		return false;
+	}
+	m_device->CreateCommandAllocator( D3D12_COMMAND_LIST_TYPE_COPY, IID_PPV_ARGS(&m_uploadCommandAllocator));
+	m_device->CreateCommandList( 0, D3D12_COMMAND_LIST_TYPE_COPY, m_uploadCommandAllocator.Get(), nullptr, IID_PPV_ARGS(&m_uploadCommandList));
+	m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_uploadFence));
+	m_uploadFenceValue = 0;
+	m_uploadFenceEvent = CreateEvent( nullptr, FALSE, FALSE, nullptr );
+
+	return true;
+}
+
+void 
+DeviceDX12::executeCommand( ComPtr<ID3D12GraphicsCommandList>& _commandList ) {
+	ID3D12CommandList* lists[] = {
+		_commandList.Get()
+	};
+	m_graphicsCommandQueue->ExecuteCommandLists( 1, lists );
+	//
+	++m_fenceValues[m_flightIndex];
+	HRESULT rst = m_graphicsCommandQueue->Signal( m_fences[m_flightIndex].Get(), m_fenceValues[m_flightIndex] );
+	if (FAILED(rst)) {
+		m_running = false;
+	}
+}
+
+ComPtr<IDXGISwapChain3> DeviceDX12::createSwapchain( HWND _hwnd, uint32_t _width, uint32_t _height ) {
+	ComPtr<IDXGISwapChain1> swapchain;
+	DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {};{
+		swapChainDesc.BufferCount = MaxFlightCount;
+		swapChainDesc.Width = _width;
+		swapChainDesc.Height = _height;
+		swapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+		swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+		swapChainDesc.SampleDesc.Count = 1;
+	}
+	//
+	m_factory->CreateSwapChainForHwnd(
+	m_graphicsCommandQueue.Get(),        // Swap chain needs the queue so that it can force a flush on it.
+	_hwnd,
+	&swapChainDesc,
+	nullptr,
+	nullptr,
+	&swapchain
+	);
+	HRESULT rst = m_factory->MakeWindowAssociation(_hwnd, DXGI_MWA_NO_ALT_ENTER);
+	if(FAILED(rst)){
+		return nullptr;
+	}
+	ComPtr<IDXGISwapChain3> finalSwapchain;
+	swapchain.As(&finalSwapchain);
+	return finalSwapchain;
+}
+
+ComPtr<ID3D12GraphicsCommandList> 
+DeviceDX12::onTick( uint64_t _dt, uint32_t _flightIndex ) {
+	m_flightIndex = _flightIndex;
+	HRESULT rst;
+	auto& cmdAllocator = m_graphicsCommandAllocator[_flightIndex];
+	auto& cmdList = m_graphicsCommandLists[_flightIndex];
+	cmdAllocator->Reset();
+	rst = cmdList->Reset( cmdAllocator.Get(), nullptr );
+	if( FAILED(rst)) {
+		return nullptr;
+	}
+	return cmdList;
+}
+
+void
+DeviceDX12::waitForFlight( uint32_t _flight ) {
+	if (m_fences[_flight]->GetCompletedValue() < m_fenceValues[_flight]) {
+		HRESULT rst;
+		rst = m_fences[_flight]->SetEventOnCompletion(m_fenceValues[_flight], m_graphicsFenceEvent);
+		if (FAILED(rst)) {
+			m_running = false;
+		}
+		WaitForSingleObject(m_graphicsFenceEvent, INFINITE);
+	}
+}
+
+ComPtr<ID3D12Resource>
+DeviceDX12::createVertexBuffer( const void* _data, size_t _length ) {
+	D3D12_HEAP_PROPERTIES heapProps; {
+		heapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
+		heapProps.CreationNodeMask = D3D12_CPU_PAGE_PROPERTY_NOT_AVAILABLE;
+		heapProps.MemoryPoolPreference = D3D12_MEMORY_POOL_L1;
+		heapProps.CreationNodeMask = 1;
+		heapProps.VisibleNodeMask = 1;
+	}
+	ComPtr<ID3D12Resource> buffer = nullptr;
+	HRESULT rst = m_device->CreateCommittedResource( 
+		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+		D3D12_HEAP_FLAG_NONE,
+		&CD3DX12_RESOURCE_DESC::Buffer(_length),
+		D3D12_RESOURCE_STATE_COPY_DEST,
+		nullptr,
+		IID_PPV_ARGS(&buffer)
+	);
+	if(FAILED(rst)) {
+		return nullptr;
+	}
+	buffer->SetName(L"VertexBuffer");
+	//
+	uploadBuffer( buffer, _data, _length );
+	//
+	return buffer;
+}
+
+void
+DeviceDX12::uploadBuffer( ComPtr<ID3D12Resource> _vertexBuffer, const void* _data, size_t _length ) {
+	HRESULT rst = 0;
+	// Create staging buffer
+	ComPtr<ID3D12Resource> stagingBuffer;
+	m_device->CreateCommittedResource(
+		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD), 							// upload heap
+		D3D12_HEAP_FLAG_NONE, 														// no flags
+		&CD3DX12_RESOURCE_DESC::Buffer(_length), 									// resource description for a buffer
+		D3D12_RESOURCE_STATE_GENERIC_READ, 											// GPU will read from this buffer and copy its contents to the default heap
+		nullptr,
+		IID_PPV_ARGS(&stagingBuffer));
+	stagingBuffer->SetName(L"triangle vertex buffer staging buffer.");
+	void* mappedPtr = nullptr;
+	stagingBuffer->Map( 0, nullptr, &mappedPtr);
+	// store vertex buffer in staging buffer
+	D3D12_PLACED_SUBRESOURCE_FOOTPRINT resourceFootprint;
+	{
+		D3D12_SUBRESOURCE_DATA vertexSubResourceData = {}; {
+			vertexSubResourceData.pData = reinterpret_cast<const BYTE*>(_data); 	// pointer to our vertex array
+			vertexSubResourceData.RowPitch = _length; 								// size of all our triangle vertex data
+			vertexSubResourceData.SlicePitch = _length; 							// also the size of our triangle vertex data
+		}
+		uint32_t numRows[1];
+		uint64_t rowSizesInBytes[1];
+		uint64_t bytesTotal;
+		m_device->GetCopyableFootprints(
+			&_vertexBuffer->GetDesc(), 
+			0, 
+			1, 
+			0,
+			&resourceFootprint, 
+			numRows, 
+			rowSizesInBytes, 
+			&bytesTotal
+		);
+	}
+	memcpy( mappedPtr, _data, _length );
+	stagingBuffer->Unmap( 0, nullptr );
+
+	if( m_uploadFence->GetCompletedValue() < m_uploadFenceValue ) {
+		rst = m_uploadFence->SetEventOnCompletion( m_uploadFenceValue, m_uploadFenceEvent );
+		if( FAILED(rst)) {
+			assert(false);
+			return;
+		}
+        WaitForSingleObject( m_uploadFenceEvent, INFINITE);
+	}
+	//
+	m_uploadCommandAllocator->Reset();
+	m_uploadCommandList->Reset( m_uploadCommandAllocator.Get(), nullptr ); { 
+		// record commands
+		// copy buffer data
+		m_uploadCommandList->CopyBufferRegion( _vertexBuffer.Get() , 0, stagingBuffer.Get(), 0, _length);
+		// resource barrier
+		auto barrierDesc = CD3DX12_RESOURCE_BARRIER::Transition( _vertexBuffer.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER );
+		m_uploadCommandList->ResourceBarrier( 1, &barrierDesc );
+	}
+	m_uploadCommandList->Close();
+	//
+	ID3D12CommandList* lists[] = {
+		m_uploadCommandList.Get()
+	};
+	m_uploadQueue->ExecuteCommandLists( 1, lists );
+	m_uploadQueue->Signal( m_uploadFence.Get(), ++m_uploadFenceValue );
+	stagingBuffer->Release();
+}
+
+ComPtr<ID3D12Resource>
+DeviceDX12::createTexture() {
+	ComPtr<ID3D12Resource> texture = nullptr;
+	// fill the texture description
+	D3D12_RESOURCE_DESC textureDesc = {}; {
+		auto& desc = textureDesc;
+		desc.MipLevels = 1;
+		desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		desc.Width = 8;
+		desc.Height = 8;
+		desc.Flags = D3D12_RESOURCE_FLAG_NONE; 			// 用作什么用，比如说 RenderTarget, DepthStencil
+		desc.DepthOrArraySize = 1;						// 这一点DX12处理得真的非常到位，Vulkan这里就处理得非常不好
+		desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+		desc.SampleDesc.Count = 1;
+		desc.SampleDesc.Quality = 0;
+	}
+	CD3DX12_HEAP_PROPERTIES heapProperty ( D3D12_HEAP_TYPE::D3D12_HEAP_TYPE_DEFAULT );
+	// Create a texture object
+	HRESULT rst = m_device->CreateCommittedResource( 
+		&heapProperty, 
+		D3D12_HEAP_FLAG_NONE,
+		&textureDesc,
+		D3D12_RESOURCE_STATE_COPY_DEST,
+		nullptr,
+		IID_PPV_ARGS(&texture)
+	);
+	if(FAILED(rst)) {
+		return nullptr;
+	}
+	//
+	UINT64 RequiredSize = 0;
+	D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint;
+	m_device->GetCopyableFootprints(&textureDesc, 0, 1, 0, &footprint, nullptr, nullptr, &RequiredSize );
+	// Create staging buffer
+	ComPtr<ID3D12Resource> stagingBuffer = nullptr;
+	//
+	uint32_t pixelData[] = {
+		0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff,
+		0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff,
+		0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff,
+		0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff,
+		0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff,
+		0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff,
+		0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff,
+		0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff,
+	};
+	m_device->CreateCommittedResource(
+		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD), 							// upload heap
+		D3D12_HEAP_FLAG_NONE, 														// no flags
+		&CD3DX12_RESOURCE_DESC::Buffer(RequiredSize),							// resource description for a buffer
+		D3D12_RESOURCE_STATE_GENERIC_READ, 											// GPU will read from this buffer and copy its contents to the default heap
+		nullptr,
+		IID_PPV_ARGS(&stagingBuffer));
+	stagingBuffer->SetName(L"simple texture staging buffer.");
+
+	void* mappedPtr = nullptr;
+	stagingBuffer->Map( 0, nullptr, &mappedPtr );
+	memcpy( mappedPtr, pixelData, sizeof(pixelData) );
+	stagingBuffer->Unmap( 0, nullptr );
+	//
+	// Copy pixel data into the texture object
+	// Wait for prev upload operation
+	if( m_uploadFence->GetCompletedValue() < m_uploadFenceValue ) {
+		rst = m_uploadFence->SetEventOnCompletion( m_uploadFenceValue, m_uploadFenceEvent );
+		if( FAILED(rst)) {
+			assert(false);
+			return nullptr;
+		}
+        WaitForSingleObject( m_uploadFenceEvent, INFINITE);
+	}
+	//
+	m_uploadCommandAllocator->Reset();
+	m_uploadCommandList->Reset( m_uploadCommandAllocator.Get(), nullptr ); { 
+		CD3DX12_TEXTURE_COPY_LOCATION dst (texture.Get(), 0);
+		//D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint;
+		//m_device->GetCopyableFootprints( &stagingBuffer->GetDesc(), 0, 1, 0, &footprint, nullptr, nullptr, nullptr );
+		CD3DX12_TEXTURE_COPY_LOCATION src( stagingBuffer.Get());
+		m_uploadCommandList->CopyTextureRegion( &dst, 0, 0, 0, &src, nullptr);
+		// resource barrier
+		auto barrierDesc = CD3DX12_RESOURCE_BARRIER::Transition( texture.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE );
+		m_uploadCommandList->ResourceBarrier( 1, &barrierDesc );
+	}
+	m_uploadCommandList->Close();
+	//
+	ID3D12CommandList* lists[] = {
+		m_uploadCommandList.Get()
+	};
+	m_uploadQueue->ExecuteCommandLists( 1, lists );
+	m_uploadQueue->Signal( m_uploadFence.Get(), ++m_uploadFenceValue );
+	stagingBuffer->Release();
+	// Return!!
+	return texture;
+}
+
+DeviceDX12::operator ComPtr<ID3D12Device> () const {
+	return m_device;
+}
+
 bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
 
 	if (!_wnd || !_arch) {
@@ -15,27 +358,18 @@ bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
 	if(!this->m_device.initialize()){
 		return false;
 	}
-	//
-	m_device.createSwapchain( (HWND)_wnd, 320, 240  );
     // 5. swapchain / when windows is resize
     this->m_hwnd = _wnd;// handle of the window
 
-    // 6. create descriptor heap
-    // describe an rtv descriptor heap and create
-    D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc = {}; {
-        rtvHeapDesc.NumDescriptors = MaxFlightCount;
-        rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-        rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-    }
-	ComPtr<ID3D12Device> device = (ComPtr<ID3D12Device>)m_device;
-
 	HRESULT rst = 0;
+
+	ComPtr<ID3D12Device> device = (ComPtr<ID3D12Device>)m_device;
 
 	D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};{
         srvHeapDesc.NumDescriptors = 1;
         srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-        rst = device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_pipelineDescriptorHeap));
+        rst = device->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&m_pipelineDescriptorHeap));
 		if( FAILED(rst)) {
 			return false;
 		}
@@ -86,9 +420,7 @@ bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
 	if ( FAILED(device->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData)))) {
 		featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
 	}
-	//
-	ID3DBlob* signature = nullptr;
-	ID3DBlob* error;
+	
 	rst = D3DX12SerializeVersionedRootSignature( &rootSignatureDesc, featureData.HighestVersion, &signature, &error);
 	if (FAILED(rst)) {
 		return false;
@@ -167,6 +499,8 @@ bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
 		sampleDesc.Count = 1;
 	}
 
+	// create pipeline state
+
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC pipelineStateDesc = {}; {
 		auto& desc = pipelineStateDesc;
 		desc.InputLayout = inputLayoutDesc;
@@ -185,92 +519,37 @@ bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
 		desc.NumRenderTargets = 1;
 		desc.SampleMask = ~0;
 	}
-	rst = m_dxgiDevice->CreateGraphicsPipelineState(&pipelineStateDesc, IID_PPV_ARGS(&m_pipelineStateObject));
+	rst = device->CreateGraphicsPipelineState(&pipelineStateDesc, IID_PPV_ARGS( &m_pipelineStateObject));
 	if (FAILED(rst)) {
 		return false;
 	}
-
-	// 9. create command list
-	// create the command list with the first allocator
-	rst = m_dxgiDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocators[0], m_pipelineStateObject, IID_PPV_ARGS(&m_commandList));
-	if (FAILED(rst)) {
-		return false;
-	}
-	m_commandList->Close();
 
 	// a triangle
-
 	struct Vertex {
-		DirectX::XMFLOAT3 pos;
+		DirectX::XMFLOAT3 position;
+		DirectX::XMFLOAT2 uv;
 	};
 
-	Vertex vList[] = {
-		{ { 0.0f, 0.5f, 0.5f } },
-		{ { 0.5f, -0.5f, 0.5f } },
-		{ { -0.5f, -0.5f, 0.5f } },
+	Vertex vertexData[] = {
+		{ { 0.0f, 0.5f, 0.5f }, { 0.5f, 0.0f } },
+		{ { 0.5f, -0.5f, 0.5f }, { 1.0f, 1.0f } },
+		{ { -0.5f, -0.5f, 0.5f }, { 0.0f, 1.0f } },
 	};
 
-	int vBufferSize = sizeof(vList);
+	int vertexBufferSize = sizeof(vertexData);
 
-	// create default heap
-	// default heap is memory on the GPU. Only the GPU has access to this memory
-	// To get data into this heap, we will have to upload the data using
-	// an upload heap
-	m_dxgiDevice->CreateCommittedResource(
-		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT), // a default heap
-		D3D12_HEAP_FLAG_NONE, // no flags
-		&CD3DX12_RESOURCE_DESC::Buffer(vBufferSize), // resource description for a buffer
-		D3D12_RESOURCE_STATE_COPY_DEST, // we will start this heap in the copy destination state since we will copy data
-										// from the upload heap to this heap
-		nullptr, // optimized clear value must be null for this type of resource. used for render targets and depth/stencil buffers
-		IID_PPV_ARGS(&m_vertexBuffer));
-
-	// we can give resource heaps a name so when we debug with the graphics debugger we know what resource we are looking at
-	m_vertexBuffer->SetName(L"Vertex Buffer Resource Heap");
-
-	// create upload heap
-	// upload heaps are used to upload data to the GPU. CPU can write to it, GPU can read from it
-	// We will upload the vertex buffer using this heap to the default heap
-	ID3D12Resource* vBufferUploadHeap;
-	m_dxgiDevice->CreateCommittedResource(
-		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD), // upload heap
-		D3D12_HEAP_FLAG_NONE, // no flags
-		&CD3DX12_RESOURCE_DESC::Buffer(vBufferSize), // resource description for a buffer
-		D3D12_RESOURCE_STATE_GENERIC_READ, // GPU will read from this buffer and copy its contents to the default heap
-		nullptr,
-		IID_PPV_ARGS(&vBufferUploadHeap));
-	vBufferUploadHeap->SetName(L"Vertex Buffer Upload Resource Heap");
-
-	m_commandAllocators[m_flightIndex]->Reset();
-	m_commandList->Reset(m_commandAllocators[m_flightIndex], m_pipelineStateObject);
-
-	// store vertex buffer in upload heap
-	D3D12_SUBRESOURCE_DATA vertexData = {};
-	vertexData.pData = reinterpret_cast<BYTE*>(vList); // pointer to our vertex array
-	vertexData.RowPitch = vBufferSize; // size of all our triangle vertex data
-	vertexData.SlicePitch = vBufferSize; // also the size of our triangle vertex data
-										 // we are now creating a command with the command list to copy the data from
-										 // the upload heap to the default heap
-	UpdateSubresources( m_commandList, m_vertexBuffer, vBufferUploadHeap, 0, 0, 1, &vertexData);
-
-	// transition the vertex buffer data from copy destination state to vertex buffer state
-	m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_vertexBuffer, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER));
-
-	// Now we execute the command list to upload the initial assets (triangle data)
-	m_commandList->Close();
-	ID3D12CommandList* ppCommandLists[] = { m_commandList };
-	m_commandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
-
-	// increment the fence value now, otherwise the buffer might not be uploaded by the time we start drawing
-	++m_fenceValue[m_flightIndex];
-	rst = m_commandQueue->Signal(m_fence[m_flightIndex], m_fenceValue[m_flightIndex]);
-	if (FAILED(rst)) {
-		m_running = false;
+	this->m_vertexBuffer = m_device.createVertexBuffer( vertexData, vertexBufferSize);
+	{ // create vertex buffer view
+		this->m_vertexBufferView.BufferLocation = 0;
+		this->m_vertexBufferView.SizeInBytes = sizeof(vertexData);
+		this->m_vertexBufferView.StrideInBytes = sizeof(Vertex);
 	}
+	
+	this->m_simpleTexture = m_device.createTexture();
 	// create a vertex buffer view for the triangle. We get the GPU memory address to the vertex pointer using the GetGPUVirtualAddress() method
 	m_vertexBufferView.BufferLocation = m_vertexBuffer->GetGPUVirtualAddress();
 	m_vertexBufferView.StrideInBytes = sizeof(Vertex);
-	m_vertexBufferView.SizeInBytes = vBufferSize;
+	m_vertexBufferView.SizeInBytes = vertexBufferSize;
 	//
 	return true;
 }
@@ -280,8 +559,8 @@ void TriangleDelux::resize(uint32_t _width, uint32_t _height) {
 	 // Fill out the Viewport
 		m_viewport.TopLeftX = 0;
 		m_viewport.TopLeftY = 0;
-		m_viewport.Width = _width;
-		m_viewport.Height = _height;
+		m_viewport.Width = static_cast<float>(_width);
+		m_viewport.Height = static_cast<float>(_height);
 		m_viewport.MinDepth = 0.0f;
 		m_viewport.MaxDepth = 1.0f;
 
@@ -291,7 +570,8 @@ void TriangleDelux::resize(uint32_t _width, uint32_t _height) {
 		m_scissor.right = _width;
 		m_scissor.bottom = _height;
         if (!this->m_swapchain) {
-			//
+			
+			HRESULT rst = 0;
 			DXGI_MODE_DESC displayModeDesc = {}; {
 				displayModeDesc.Width = _width;
 				displayModeDesc.Height = _height;
@@ -300,22 +580,21 @@ void TriangleDelux::resize(uint32_t _width, uint32_t _height) {
 			DXGI_SAMPLE_DESC sampleDesc = {}; {
 				sampleDesc.Count = 1;
 			}
-			// Describe and create the swap chain.
-			DXGI_SWAP_CHAIN_DESC swapchainDesc = {}; {
-				swapchainDesc.BufferCount = MaxFlightCount;
-				swapchainDesc.BufferDesc = displayModeDesc;
-				swapchainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-				swapchainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-				swapchainDesc.OutputWindow = (HWND)m_hwnd;
-				swapchainDesc.SampleDesc = sampleDesc;
-				swapchainDesc.Windowed = true; // fullsceen or not!!!
+			m_swapchain = m_device.createSwapchain((HWND)m_hwnd, _width, _height );
+
+			ComPtr<ID3D12Device> device = (ComPtr<ID3D12Device>)m_device;
+
+			D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc = {}; {
+				rtvHeapDesc.NumDescriptors = MaxFlightCount;
+				rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+				rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
 			}
 			//
-			IDXGISwapChain* swapchain = nullptr;
-			HRESULT rst = this->m_dxgiFactory->CreateSwapChain(this->m_commandQueue, &swapchainDesc, &swapchain);
-			this->m_swapchain = static_cast<IDXGISwapChain3*>(swapchain);
-			this->m_flightIndex = m_swapchain->GetCurrentBackBufferIndex();
-
+			rst = device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_rtvDescriptorHeap));
+			if( FAILED(rst)) {
+				return;
+			}
+			device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 			// 7. create render targets & render target view
 			// Create a RTV for each buffer (double buffering is two buffers, tripple buffering is 3).
 			D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = m_rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
@@ -327,56 +606,28 @@ void TriangleDelux::resize(uint32_t _width, uint32_t _height) {
 					return;
 				}
 				// the we "create" a render target view which binds the swap chain buffer (ID3D12Resource[n]) to the rtv handle
-				m_dxgiDevice->CreateRenderTargetView(m_renderTargets[i], nullptr, { rtvHandle.ptr + m_rtvDescriptorSize * i });
+				device->CreateRenderTargetView( m_renderTargets[i].Get(), nullptr, { rtvHandle.ptr + m_rtvDescriptorSize * i });
 			}
         }
 		else {
+			// wait for graphics queue
 			for (uint32_t flightIndex = 0; flightIndex < MaxFlightCount; ++flightIndex) {
-				if (m_fence[flightIndex]->GetCompletedValue() < m_fenceValue[flightIndex]) {
-					HRESULT rst;
-					rst = m_fence[flightIndex]->SetEventOnCompletion(m_fenceValue[flightIndex], m_fenceEvent);
-					if (FAILED(rst)) {
-						m_running = false;
-					}
-					WaitForSingleObject(m_fenceEvent, INFINITE);
-				}
+				m_device.waitForFlight( flightIndex );
 			}
 		}
-    }        
-
+    }
     printf("resized!");
 }
 
 void TriangleDelux::release() {
 	for (uint32_t flightIndex = 0; flightIndex < MaxFlightCount; ++flightIndex) {
-		if (m_fence[flightIndex]->GetCompletedValue() < m_fenceValue[flightIndex]) {
-            HRESULT rst;
-			rst = m_fence[flightIndex]->SetEventOnCompletion(m_fenceValue[flightIndex], m_fenceEvent);
-			if (FAILED(rst)) {
-				m_running = false;
-			}
-			WaitForSingleObject(m_fenceEvent, INFINITE);
-		}
+		m_device.waitForFlight( flightIndex );
 	}
 	m_swapchain->Release();
 	m_swapchain = nullptr;
 	m_rtvDescriptorHeap->Release();
 	m_rtvDescriptorHeap = nullptr;
-	m_commandList->Release();
-	m_commandList = nullptr;
-
-	for (uint32_t flightIndex = 0; flightIndex < MaxFlightCount; ++flightIndex) {
-		//
-		m_commandAllocators[flightIndex]->Release();
-		m_commandAllocators[flightIndex] = nullptr;
-		//
-		m_fence[flightIndex]->Release();
-		m_fence[flightIndex] = nullptr;
-	}
-    m_dxgiDevice->Release();
-    m_dxgiDevice = nullptr;
-
-	
+	//	
     printf("destroyed");
 }
 
@@ -384,82 +635,49 @@ void TriangleDelux::tick() {
     if (!m_swapchain) {
         return;
     }
+	HRESULT rst;
     {
-        HRESULT rst;
         m_flightIndex = m_swapchain->GetCurrentBackBufferIndex();
-		// 正常上一轮渲染完成 这个 m_fence的completeValue 应该是和 m_fenceValue[m_flightIndex]相等的
-		// 所以这里小于就是指这个渲染操作还没完成，其实这里写不等于应该也是没问题的
-        if (m_fence[m_flightIndex]->GetCompletedValue() < m_fenceValue[m_flightIndex]) {
-			// SetEventOnCompletion : Specifies an event that should be fired when the fence reaches a certain value.
-			// 所以这里我们要等它完成，怎么等它完成呢，这里有个 fence 有个功能就是fence的值到了某个值之后可以设置触发某个event
-            rst = m_fence[m_flightIndex]->SetEventOnCompletion(m_fenceValue[m_flightIndex], m_fenceEvent);
-            if (FAILED(rst)) {
-                m_running = false;
-            }
-			// 然后我们一直在这里等待这个event被触发就行了
-            WaitForSingleObject(m_fenceEvent, INFINITE);
-        }
+		m_device.waitForFlight(m_flightIndex);
     }
 
-    { //
-        ID3D12CommandAllocator* commandAllocator = m_commandAllocators[m_flightIndex];
-        HRESULT rst = commandAllocator->Reset();
-        if (FAILED(rst)) {
-            m_running = false;
-        }
-        rst = m_commandList->Reset(commandAllocator, m_pipelineStateObject);
-        if (FAILED(rst)) {
-            m_running = false;
-        }
+    {
+		ComPtr<ID3D12GraphicsCommandList> commandList = m_device.onTick( 0, m_flightIndex );
         // transform the render target's layout
 		D3D12_RESOURCE_BARRIER barrier; {
 			barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
 			barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
 			barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-			barrier.Transition.pResource = m_renderTargets[m_flightIndex];
+			barrier.Transition.pResource = m_renderTargets[m_flightIndex].Get();
 			barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
 			barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
 		}
-        m_commandList->ResourceBarrier(1, &barrier);
+        commandList->ResourceBarrier(1, &barrier);
 		CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(), m_flightIndex, m_rtvDescriptorSize);
-		m_commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
+		commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
         const float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
         // clear color
-        m_commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
+        commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
         // transfrom the render target's layout
 
-		m_commandList->SetGraphicsRootSignature(m_pipelineRootSignature);
-		m_commandList->SetPipelineState(m_pipelineStateObject);
-		m_commandList->RSSetViewports(1, &m_viewport);
-		m_commandList->RSSetScissorRects(1, &m_scissor);
-		m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-		m_commandList->IASetVertexBuffers(0, 1, &m_vertexBufferView);
-		m_commandList->DrawInstanced(3, 1, 0, 0); // finally draw 3 vertices (draw the triangle)
+		// commandList->SetGraphicsRootSignature(m_pipelineRootSignature);
+		// commandList->SetPipelineState(m_pipelineStateObject);
+		// commandList->RSSetViewports(1, &m_viewport);
+		// commandList->RSSetScissorRects(1, &m_scissor);
+		// commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		// commandList->IASetVertexBuffers(0, 1, &m_vertexBufferView);
+		// commandList->DrawInstanced(3, 1, 0, 0); // finally draw 3 vertices (draw the triangle)
 
 		std::swap(barrier.Transition.StateAfter, barrier.Transition.StateBefore);
-        m_commandList->ResourceBarrier(1, &barrier);
+        commandList->ResourceBarrier(1, &barrier);
         //
-        rst = m_commandList->Close();
-        if (FAILED(rst)) {
-            m_running = false;
-        }
+        rst = commandList->Close();
+		//
+		m_device.executeCommand(commandList);
     }
     {
-        ID3D12CommandList* ppCommandLists[] = { m_commandList };
-        m_commandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
-        // queue is being executed on the GPU
-		// Signal : Updates a fence to a specified value.
-		// 队列执行完会给这个fence一个新的值
-		++m_fenceValue[m_flightIndex];
-        HRESULT rst = m_commandQueue->Signal(m_fence[m_flightIndex], m_fenceValue[m_flightIndex]);
-        if (FAILED(rst)) {
-            m_running = false;
-        }
         // present the current backbuffer
         rst = m_swapchain->Present(1, 0);
-        if (FAILED(rst)) {
-            m_running = false;
-        }
     }
 }
 
@@ -475,4 +693,4 @@ TriangleDelux theapp;
 
 NixApplication* GetApplication() {
     return &theapp;
-}s
+}

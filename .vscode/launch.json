@@ -26,6 +26,17 @@
             "cwd": "${workspaceFolder}/bin/Windows/x64/",
             "environment": [],
             "externalConsole": false
+        },
+        {
+            "name": "TriangleDelux",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/bin/Windows/x64/TriangleDelux.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/bin/Windows/x64/",
+            "environment": [],
+            "externalConsole": false
         }
     ]
 }
