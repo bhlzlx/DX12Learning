@@ -2,5 +2,6 @@
     "files.associations": {
         "type_traits": "cpp",
         "xutility": "cpp"
-    }
+    },
+    "editor.fontFamily": " 'Courier New',Consolas, monospace"
 }

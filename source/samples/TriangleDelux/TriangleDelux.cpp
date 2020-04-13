@@ -296,6 +296,7 @@ DeviceDX12::createTexture() {
 		0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff,
 		0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff,
 	};
+	
 	m_device->CreateCommittedResource(
 		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD), 							// upload heap
 		D3D12_HEAP_FLAG_NONE, 														// no flags
@@ -376,7 +377,7 @@ bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
 	}
 
 	CD3DX12_DESCRIPTOR_RANGE1 vertexDescriptorRanges[1];{
-		vertexDescriptorRanges[2].Init( D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
+		vertexDescriptorRanges[0].Init( D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
 	}
 
 	CD3DX12_DESCRIPTOR_RANGE1 pixelDescriptorRanges[2];{
