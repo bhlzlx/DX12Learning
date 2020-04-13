@@ -387,7 +387,7 @@ bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
 			1,												// descriptor count
 			0,												// base shader register
 			0,												// register space
-			D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC			// descriptor data type
+			D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC				// descriptor data type
 		);
 		// sampler & texture
 		pixelDescriptorRanges[1].Init(
@@ -395,16 +395,17 @@ bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
 			1,												// descriptor count
 			0,												// base shader register
 			0,												// register space
-			D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC			// descriptor data type
+			D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE// descriptor data type
 		);
 	}
 
 	constexpr int vertexRangeCount = sizeof(vertexDescriptorRanges)/sizeof(CD3DX12_DESCRIPTOR_RANGE1);
 	constexpr int pixelRangeCount = sizeof(pixelDescriptorRanges)/sizeof(CD3DX12_DESCRIPTOR_RANGE1);
 	//
-	CD3DX12_ROOT_PARAMETER1 rootParameters[2];{
+	CD3DX12_ROOT_PARAMETER1 rootParameters[3];{
 		rootParameters[0].InitAsDescriptorTable( vertexRangeCount , &vertexDescriptorRanges[0], D3D12_SHADER_VISIBILITY_VERTEX );
-		rootParameters[1].InitAsDescriptorTable( pixelRangeCount , &pixelDescriptorRanges[0], D3D12_SHADER_VISIBILITY_PIXEL );
+		rootParameters[1].InitAsDescriptorTable( 1 , &pixelDescriptorRanges[0], D3D12_SHADER_VISIBILITY_PIXEL );
+		rootParameters[1].InitAsDescriptorTable( 1 , &pixelDescriptorRanges[1], D3D12_SHADER_VISIBILITY_PIXEL );
 	}
 
 	CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc {};{
@@ -424,6 +425,8 @@ bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
 	
 	rst = D3DX12SerializeVersionedRootSignature( &rootSignatureDesc, featureData.HighestVersion, &signature, &error);
 	if (FAILED(rst)) {
+		const char * msg = (const char *)error->GetBufferPointer();
+		OutputDebugStringA(msg);
 		return false;
 	}
 	rst = device->CreateRootSignature( 0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_pipelineRootSignature));
