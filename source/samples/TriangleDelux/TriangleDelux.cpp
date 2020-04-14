@@ -17,8 +17,8 @@ bool DeviceDX12::initialize() {
 	}
 #endif
 	HRESULT rst = 0;
-	ComPtr<IDXGIFactory4> factory;
-	rst = CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&factory));
+	//
+	rst = CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&m_factory));
 	//
 	if(FAILED(rst)){
 		return false;
@@ -29,7 +29,7 @@ bool DeviceDX12::initialize() {
 	//     return false;
 	// }
 	// Get a hardware adapter
-	for (UINT adapterIndex = 0; DXGI_ERROR_NOT_FOUND != factory->EnumAdapters1(adapterIndex, &m_hardwareAdapter); ++adapterIndex) {
+	for (UINT adapterIndex = 0; DXGI_ERROR_NOT_FOUND != m_factory->EnumAdapters1(adapterIndex, &m_hardwareAdapter); ++adapterIndex) {
 		DXGI_ADAPTER_DESC1 desc;
 		m_hardwareAdapter->GetDesc1(&desc);
 		if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) {
@@ -46,6 +46,7 @@ bool DeviceDX12::initialize() {
 		D3D_FEATURE_LEVEL_11_0,
 		IID_PPV_ARGS(&m_device)
 		);
+
 	if(FAILED(rst)){
 		return false;
 	}
@@ -61,8 +62,10 @@ bool DeviceDX12::initialize() {
 	// Create graphics command allocator
 	for( uint32_t i = 0; i<MaxFlightCount; ++i){
 		m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_graphicsCommandAllocator[i]));
+		m_graphicsCommandAllocator[i]->Reset();
 		// Create graphics command list
 		m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_graphicsCommandAllocator[i].Get(), nullptr, IID_PPV_ARGS(&m_graphicsCommandLists[i]));
+		m_graphicsCommandLists[i]->Close();
 		// Create fences & initialize fence values
 		m_device->CreateFence( 0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fences[i]));
 		m_fenceValues[i] = 0;
@@ -71,13 +74,14 @@ bool DeviceDX12::initialize() {
 	m_graphicsFenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
 
 	// Create copy command queue, command list, command allocator, fence, fence event
-	queueDesc.Type = D3D12_COMMAND_LIST_TYPE_COPY;
+	queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
 	rst = m_device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_uploadQueue));
 	if(FAILED(rst)) {
 		return false;
 	}
-	m_device->CreateCommandAllocator( D3D12_COMMAND_LIST_TYPE_COPY, IID_PPV_ARGS(&m_uploadCommandAllocator));
-	m_device->CreateCommandList( 0, D3D12_COMMAND_LIST_TYPE_COPY, m_uploadCommandAllocator.Get(), nullptr, IID_PPV_ARGS(&m_uploadCommandList));
+	m_device->CreateCommandAllocator( D3D12_COMMAND_LIST_TYPE_DIRECT , IID_PPV_ARGS(&m_uploadCommandAllocator));
+	m_device->CreateCommandList( 0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_uploadCommandAllocator.Get(), nullptr, IID_PPV_ARGS(&m_uploadCommandList));
+	m_uploadCommandList->Close();
 	m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_uploadFence));
 	m_uploadFenceValue = 0;
 	m_uploadFenceEvent = CreateEvent( nullptr, FALSE, FALSE, nullptr );
@@ -111,15 +115,21 @@ ComPtr<IDXGISwapChain3> DeviceDX12::createSwapchain( HWND _hwnd, uint32_t _width
 		swapChainDesc.SampleDesc.Count = 1;
 	}
 	//
-	m_factory->CreateSwapChainForHwnd(
-	m_graphicsCommandQueue.Get(),        // Swap chain needs the queue so that it can force a flush on it.
-	_hwnd,
-	&swapChainDesc,
-	nullptr,
-	nullptr,
-	&swapchain
+	HRESULT rst = m_factory->CreateSwapChainForHwnd(
+		m_graphicsCommandQueue.Get(),        // Swap chain needs the queue so that it can force a flush on it.
+		_hwnd,
+		&swapChainDesc,
+		nullptr,
+		nullptr,
+		&swapchain
 	);
-	HRESULT rst = m_factory->MakeWindowAssociation(_hwnd, DXGI_MWA_NO_ALT_ENTER);
+	if( FAILED(rst)) {
+		if( rst == DXGI_ERROR_DEVICE_REMOVED) {
+			rst = m_device->GetDeviceRemovedReason();
+		}
+		return nullptr;
+	}
+	rst = m_factory->MakeWindowAssociation(_hwnd, DXGI_MWA_NO_ALT_ENTER);
 	if(FAILED(rst)){
 		return nullptr;
 	}
@@ -215,21 +225,12 @@ DeviceDX12::uploadBuffer( ComPtr<ID3D12Resource> _vertexBuffer, const void* _dat
 			0,
 			&resourceFootprint, 
 			numRows, 
-			rowSizesInBytes, 
+			rowSizesInBytes,
 			&bytesTotal
 		);
 	}
 	memcpy( mappedPtr, _data, _length );
 	stagingBuffer->Unmap( 0, nullptr );
-
-	if( m_uploadFence->GetCompletedValue() < m_uploadFenceValue ) {
-		rst = m_uploadFence->SetEventOnCompletion( m_uploadFenceValue, m_uploadFenceEvent );
-		if( FAILED(rst)) {
-			assert(false);
-			return;
-		}
-        WaitForSingleObject( m_uploadFenceEvent, INFINITE);
-	}
 	//
 	m_uploadCommandAllocator->Reset();
 	m_uploadCommandList->Reset( m_uploadCommandAllocator.Get(), nullptr ); { 
@@ -247,7 +248,17 @@ DeviceDX12::uploadBuffer( ComPtr<ID3D12Resource> _vertexBuffer, const void* _dat
 	};
 	m_uploadQueue->ExecuteCommandLists( 1, lists );
 	m_uploadQueue->Signal( m_uploadFence.Get(), ++m_uploadFenceValue );
-	stagingBuffer->Release();
+	//
+	// Wait for upload operation
+	if( m_uploadFence->GetCompletedValue() < m_uploadFenceValue ) {
+		rst = m_uploadFence->SetEventOnCompletion( m_uploadFenceValue, m_uploadFenceEvent );
+		if( FAILED(rst)) {
+			assert(false);
+		}
+        WaitForSingleObject( m_uploadFenceEvent, INFINITE);
+	}
+	//
+	// stagingBuffer->Release();
 }
 
 ComPtr<ID3D12Resource>
@@ -312,22 +323,12 @@ DeviceDX12::createTexture() {
 	stagingBuffer->Unmap( 0, nullptr );
 	//
 	// Copy pixel data into the texture object
-	// Wait for prev upload operation
-	if( m_uploadFence->GetCompletedValue() < m_uploadFenceValue ) {
-		rst = m_uploadFence->SetEventOnCompletion( m_uploadFenceValue, m_uploadFenceEvent );
-		if( FAILED(rst)) {
-			assert(false);
-			return nullptr;
-		}
-        WaitForSingleObject( m_uploadFenceEvent, INFINITE);
-	}
-	//
 	m_uploadCommandAllocator->Reset();
 	m_uploadCommandList->Reset( m_uploadCommandAllocator.Get(), nullptr ); { 
 		CD3DX12_TEXTURE_COPY_LOCATION dst (texture.Get(), 0);
-		//D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint;
-		//m_device->GetCopyableFootprints( &stagingBuffer->GetDesc(), 0, 1, 0, &footprint, nullptr, nullptr, nullptr );
-		CD3DX12_TEXTURE_COPY_LOCATION src( stagingBuffer.Get());
+		D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint;
+		m_device->GetCopyableFootprints( &texture->GetDesc(), 0, 1, 0, &footprint, nullptr, nullptr, nullptr );
+		CD3DX12_TEXTURE_COPY_LOCATION src( stagingBuffer.Get(), footprint );
 		m_uploadCommandList->CopyTextureRegion( &dst, 0, 0, 0, &src, nullptr);
 		// resource barrier
 		auto barrierDesc = CD3DX12_RESOURCE_BARRIER::Transition( texture.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE );
@@ -340,7 +341,18 @@ DeviceDX12::createTexture() {
 	};
 	m_uploadQueue->ExecuteCommandLists( 1, lists );
 	m_uploadQueue->Signal( m_uploadFence.Get(), ++m_uploadFenceValue );
-	stagingBuffer->Release();
+	//
+	// Wait for upload operation
+	if( m_uploadFence->GetCompletedValue() < m_uploadFenceValue ) {
+		rst = m_uploadFence->SetEventOnCompletion( m_uploadFenceValue, m_uploadFenceEvent );
+		if( FAILED(rst)) {
+			assert(false);
+			return nullptr;
+		}
+        WaitForSingleObject( m_uploadFenceEvent, INFINITE);
+	}
+	//
+	// stagingBuffer->Release();
 	// Return!!
 	return texture;
 }
@@ -376,40 +388,41 @@ bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
 		}
 	}
 
-	CD3DX12_DESCRIPTOR_RANGE1 vertexDescriptorRanges[1];{
-		vertexDescriptorRanges[0].Init( D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
-	}
-
-	CD3DX12_DESCRIPTOR_RANGE1 pixelDescriptorRanges[2];{
-		// uniform buffer
-		pixelDescriptorRanges[0].Init(
-			D3D12_DESCRIPTOR_RANGE_TYPE_SRV,				// descriptor type
-			1,												// descriptor count
-			0,												// base shader register
-			0,												// register space
-			D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC				// descriptor data type
-		);
-		// sampler & texture
-		pixelDescriptorRanges[1].Init(
-			D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER,			// descriptor type
-			1,												// descriptor count
-			0,												// base shader register
-			0,												// register space
-			D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE// descriptor data type
-		);
-	}
-
-	constexpr int vertexRangeCount = sizeof(vertexDescriptorRanges)/sizeof(CD3DX12_DESCRIPTOR_RANGE1);
-	constexpr int pixelRangeCount = sizeof(pixelDescriptorRanges)/sizeof(CD3DX12_DESCRIPTOR_RANGE1);
-	//
-	CD3DX12_ROOT_PARAMETER1 rootParameters[3];{
-		rootParameters[0].InitAsDescriptorTable( vertexRangeCount , &vertexDescriptorRanges[0], D3D12_SHADER_VISIBILITY_VERTEX );
-		rootParameters[1].InitAsDescriptorTable( 1 , &pixelDescriptorRanges[0], D3D12_SHADER_VISIBILITY_PIXEL );
-		rootParameters[1].InitAsDescriptorTable( 1 , &pixelDescriptorRanges[1], D3D12_SHADER_VISIBILITY_PIXEL );
-	}
+//	CD3DX12_DESCRIPTOR_RANGE1 vertexDescriptorRanges[1];{
+//		vertexDescriptorRanges[0].Init( D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
+//	}
+//
+//	CD3DX12_DESCRIPTOR_RANGE1 pixelDescriptorRanges[2];{
+//		// uniform buffer
+//		pixelDescriptorRanges[0].Init(
+//			D3D12_DESCRIPTOR_RANGE_TYPE_SRV,				// descriptor type
+//			1,												// descriptor count
+//			0,												// base shader register
+//			0,												// register space
+//			D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC				// descriptor data type
+//		);
+//		// sampler & texture
+//		pixelDescriptorRanges[1].Init(
+//			D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER,			// descriptor type
+//			1,												// descriptor count
+//			0,												// base shader register
+//			0,												// register space
+//			D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE// descriptor data type
+//		);
+//	}
+//
+//	constexpr int vertexRangeCount = sizeof(vertexDescriptorRanges)/sizeof(CD3DX12_DESCRIPTOR_RANGE1);
+//	constexpr int pixelRangeCount = sizeof(pixelDescriptorRanges)/sizeof(CD3DX12_DESCRIPTOR_RANGE1);
+//	//
+//	CD3DX12_ROOT_PARAMETER1 rootParameters[3];{
+//		rootParameters[0].InitAsDescriptorTable( vertexRangeCount , &vertexDescriptorRanges[0], D3D12_SHADER_VISIBILITY_VERTEX );
+//		rootParameters[1].InitAsDescriptorTable( 1 , &pixelDescriptorRanges[0], D3D12_SHADER_VISIBILITY_PIXEL );
+//		rootParameters[2].InitAsDescriptorTable( 1 , &pixelDescriptorRanges[1], D3D12_SHADER_VISIBILITY_PIXEL );
+//	}
 
 	CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc {};{
-		rootSignatureDesc.Init_1_1( 2, rootParameters, 0, nullptr );
+		// rootSignatureDesc.Init_1_1( 2, rootParameters, 0, nullptr );
+		rootSignatureDesc.Init_1_1( 0, nullptr, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT );
 	}
 
 	ComPtr<ID3DBlob> signature;
@@ -598,14 +611,14 @@ void TriangleDelux::resize(uint32_t _width, uint32_t _height) {
 			if( FAILED(rst)) {
 				return;
 			}
-			device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+			m_rtvDescriptorSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 			// 7. create render targets & render target view
 			// Create a RTV for each buffer (double buffering is two buffers, tripple buffering is 3).
 			D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = m_rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
 			for (int i = 0; i < MaxFlightCount; i++) {
 				// first we get the n'th buffer in the swap chain and store it in the n'th
 				// position of our ID3D12Resource array
-				HRESULT rst = m_swapchain->GetBuffer(i, IID_PPV_ARGS(&m_renderTargets[i]));
+				HRESULT rst = m_swapchain->GetBuffer( i, IID_PPV_ARGS(&m_renderTargets[i]));
 				if (FAILED(rst)) {
 					return;
 				}
@@ -614,10 +627,28 @@ void TriangleDelux::resize(uint32_t _width, uint32_t _height) {
 			}
         }
 		else {
+			ComPtr<ID3D12Device> device = (ComPtr<ID3D12Device>)m_device;
+			D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = m_rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
 			// wait for graphics queue
 			for (uint32_t flightIndex = 0; flightIndex < MaxFlightCount; ++flightIndex) {
 				m_device.waitForFlight( flightIndex );
+				//m_device.onTick(1, flightIndex);
 			}
+			//m_rtvDescriptorHeap->
+			//m_renderTargets[0]->Release();
+			//m_renderTargets[1]->Release();
+			//HRESULT rst = m_swapchain->ResizeBuffers( MaxFlightCount, _width, _height, DXGI_FORMAT_R8G8B8A8_UNORM, 0 );
+			//if( FAILED(rst)) {
+			//	OutputDebugString(L"Error!");
+			//}
+			//for (int i = 0; i < MaxFlightCount; i++) {
+			//	HRESULT rst = m_swapchain->GetBuffer( i, IID_PPV_ARGS(&m_renderTargets[i]));
+			//	if (FAILED(rst)) {
+			//		return;
+			//	}
+			//	// the we "create" a render target view which binds the swap chain buffer (ID3D12Resource[n]) to the rtv handle
+			//	device->CreateRenderTargetView( m_renderTargets[i].Get(), nullptr, { rtvHandle.ptr + m_rtvDescriptorSize * i });
+			//}
 		}
     }
     printf("resized!");
@@ -664,13 +695,13 @@ void TriangleDelux::tick() {
         commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
         // transfrom the render target's layout
 
-		// commandList->SetGraphicsRootSignature(m_pipelineRootSignature);
-		// commandList->SetPipelineState(m_pipelineStateObject);
-		// commandList->RSSetViewports(1, &m_viewport);
-		// commandList->RSSetScissorRects(1, &m_scissor);
-		// commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-		// commandList->IASetVertexBuffers(0, 1, &m_vertexBufferView);
-		// commandList->DrawInstanced(3, 1, 0, 0); // finally draw 3 vertices (draw the triangle)
+		commandList->SetGraphicsRootSignature(m_pipelineRootSignature);
+		commandList->SetPipelineState(m_pipelineStateObject);
+		commandList->RSSetViewports(1, &m_viewport);
+		commandList->RSSetScissorRects(1, &m_scissor);
+		commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		commandList->IASetVertexBuffers(0, 1, &m_vertexBufferView);
+		commandList->DrawInstanced(3, 1, 0, 0); // finally draw 3 vertices (draw the triangle)
 
 		std::swap(barrier.Transition.StateAfter, barrier.Transition.StateBefore);
         commandList->ResourceBarrier(1, &barrier);
