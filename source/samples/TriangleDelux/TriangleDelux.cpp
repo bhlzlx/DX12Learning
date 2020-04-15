@@ -96,8 +96,8 @@ DeviceDX12::executeCommand( ComPtr<ID3D12GraphicsCommandList>& _commandList ) {
 	};
 	m_graphicsCommandQueue->ExecuteCommandLists( 1, lists );
 	//
-	++m_fenceValues[m_flightIndex];
-	HRESULT rst = m_graphicsCommandQueue->Signal( m_fences[m_flightIndex].Get(), m_fenceValues[m_flightIndex] );
+	auto fenceVaue = ++m_fenceValues[m_flightIndex];
+	HRESULT rst = m_graphicsCommandQueue->Signal( m_fences[m_flightIndex].Get(), fenceVaue );
 	if (FAILED(rst)) {
 		m_running = false;
 	}
@@ -619,6 +619,7 @@ void TriangleDelux::resize(uint32_t _width, uint32_t _height) {
 				// first we get the n'th buffer in the swap chain and store it in the n'th
 				// position of our ID3D12Resource array
 				HRESULT rst = m_swapchain->GetBuffer( i, IID_PPV_ARGS(&m_renderTargets[i]));
+				m_renderTargets[i]->SetName(L"swapchain rt");
 				if (FAILED(rst)) {
 					return;
 				}
@@ -632,15 +633,13 @@ void TriangleDelux::resize(uint32_t _width, uint32_t _height) {
 			// wait for graphics queue
 			for (uint32_t flightIndex = 0; flightIndex < MaxFlightCount; ++flightIndex) {
 				m_device.waitForFlight( flightIndex );
-				//m_device.onTick(1, flightIndex);
+				// m_device.onTick(1, flightIndex);
+				m_renderTargets[flightIndex].Reset();
 			}
-			//m_rtvDescriptorHeap->
-			//m_renderTargets[0]->Release();
-			//m_renderTargets[1]->Release();
-			//HRESULT rst = m_swapchain->ResizeBuffers( MaxFlightCount, _width, _height, DXGI_FORMAT_R8G8B8A8_UNORM, 0 );
-			//if( FAILED(rst)) {
-			//	OutputDebugString(L"Error!");
-			//}
+			HRESULT rst = m_swapchain->ResizeBuffers( MaxFlightCount, _width, _height, DXGI_FORMAT_R8G8B8A8_UNORM, 0 );
+			if( FAILED(rst)) {
+				OutputDebugString(L"Error!");
+			}
 			//for (int i = 0; i < MaxFlightCount; i++) {
 			//	HRESULT rst = m_swapchain->GetBuffer( i, IID_PPV_ARGS(&m_renderTargets[i]));
 			//	if (FAILED(rst)) {
