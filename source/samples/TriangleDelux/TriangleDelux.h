@@ -61,6 +61,9 @@ public:
     void
     waitCopyQueue();
 
+    void 
+    flushGraphicsQueue();
+
     ComPtr<ID3D12Resource>
     createVertexBuffer( const void* _data, size_t _length );
 

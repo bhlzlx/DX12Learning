@@ -164,6 +164,20 @@ DeviceDX12::waitForFlight( uint32_t _flight ) {
 	}
 }
 
+void
+DeviceDX12::flushGraphicsQueue() {
+	for( uint32_t flightIndex = 0; flightIndex < MaxFlightCount; ++flightIndex) {
+		++m_fenceValues[flightIndex];
+		HRESULT rst = m_graphicsCommandQueue->Signal( m_fences[flightIndex].Get(), m_fenceValues[flightIndex] );
+		rst = m_fences[flightIndex]->SetEventOnCompletion(m_fenceValues[flightIndex], m_graphicsFenceEvent);
+		if (FAILED(rst)) {
+			m_running = false;
+		}
+		WaitForSingleObject(m_graphicsFenceEvent, INFINITE);
+	}
+	
+}
+
 ComPtr<ID3D12Resource>
 DeviceDX12::createVertexBuffer( const void* _data, size_t _length ) {
 	D3D12_HEAP_PROPERTIES heapProps; {
@@ -631,9 +645,8 @@ void TriangleDelux::resize(uint32_t _width, uint32_t _height) {
 			ComPtr<ID3D12Device> device = (ComPtr<ID3D12Device>)m_device;
 			D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = m_rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
 			// wait for graphics queue
+			m_device.flushGraphicsQueue();
 			for (uint32_t flightIndex = 0; flightIndex < MaxFlightCount; ++flightIndex) {
-				m_device.waitForFlight( flightIndex );
-				// m_device.onTick(1, flightIndex);
 				m_renderTargets[flightIndex].Reset();
 			}
 			HRESULT rst = m_swapchain->ResizeBuffers( MaxFlightCount, _width, _height, DXGI_FORMAT_R8G8B8A8_UNORM, 0 );
