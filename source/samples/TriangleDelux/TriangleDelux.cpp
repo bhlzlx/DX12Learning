@@ -640,14 +640,6 @@ void TriangleDelux::resize(uint32_t _width, uint32_t _height) {
 			if( FAILED(rst)) {
 				OutputDebugString(L"Error!");
 			}
-			//for (int i = 0; i < MaxFlightCount; i++) {
-			//	HRESULT rst = m_swapchain->GetBuffer( i, IID_PPV_ARGS(&m_renderTargets[i]));
-			//	if (FAILED(rst)) {
-			//		return;
-			//	}
-			//	// the we "create" a render target view which binds the swap chain buffer (ID3D12Resource[n]) to the rtv handle
-			//	device->CreateRenderTargetView( m_renderTargets[i].Get(), nullptr, { rtvHandle.ptr + m_rtvDescriptorSize * i });
-			//}
 		}
     }
     printf("resized!");
