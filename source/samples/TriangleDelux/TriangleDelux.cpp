@@ -96,8 +96,7 @@ DeviceDX12::executeCommand( ComPtr<ID3D12GraphicsCommandList>& _commandList ) {
 	};
 	m_graphicsCommandQueue->ExecuteCommandLists( 1, lists );
 	//
-	auto fenceVaue = ++m_fenceValues[m_flightIndex];
-	HRESULT rst = m_graphicsCommandQueue->Signal( m_fences[m_flightIndex].Get(), fenceVaue );
+	HRESULT rst = m_graphicsCommandQueue->Signal( m_fences[m_flightIndex].Get(), m_fenceValues[m_flightIndex] );
 	if (FAILED(rst)) {
 		m_running = false;
 	}
@@ -141,9 +140,10 @@ ComPtr<IDXGISwapChain3> DeviceDX12::createSwapchain( HWND _hwnd, uint32_t _width
 ComPtr<ID3D12GraphicsCommandList> 
 DeviceDX12::onTick( uint64_t _dt, uint32_t _flightIndex ) {
 	m_flightIndex = _flightIndex;
+	++m_fenceValues[m_flightIndex];
 	HRESULT rst;
-	auto& cmdAllocator = m_graphicsCommandAllocator[_flightIndex];
-	auto& cmdList = m_graphicsCommandLists[_flightIndex];
+	auto& cmdAllocator = m_graphicsCommandAllocator[m_flightIndex];
+	auto& cmdList = m_graphicsCommandLists[m_flightIndex];
 	cmdAllocator->Reset();
 	rst = cmdList->Reset( cmdAllocator.Get(), nullptr );
 	if( FAILED(rst)) {
