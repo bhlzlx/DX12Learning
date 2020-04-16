@@ -633,7 +633,7 @@ void TriangleDelux::resize(uint32_t _width, uint32_t _height) {
 				// first we get the n'th buffer in the swap chain and store it in the n'th
 				// position of our ID3D12Resource array
 				HRESULT rst = m_swapchain->GetBuffer( i, IID_PPV_ARGS(&m_renderTargets[i]));
-				m_renderTargets[i]->SetName(L"swapchain rt");
+				m_renderTargets[i]->SetName(L"swapchain render target buffer");
 				if (FAILED(rst)) {
 					return;
 				}
@@ -653,9 +653,14 @@ void TriangleDelux::resize(uint32_t _width, uint32_t _height) {
 			if( FAILED(rst)) {
 				OutputDebugString(L"Error!");
 			}
+			// get render target buffer & re-create render target view
+			for (uint32_t flightIndex = 0; flightIndex < MaxFlightCount; ++flightIndex) {
+				m_swapchain->GetBuffer( flightIndex, IID_PPV_ARGS(&m_renderTargets[flightIndex]));
+				m_renderTargets[flightIndex]->SetName(L"swapchain render target buffer");
+				device->CreateRenderTargetView( m_renderTargets[flightIndex].Get(), nullptr, { rtvHandle.ptr + m_rtvDescriptorSize * flightIndex });
+			}
 		}
     }
-    printf("resized!");
 }
 
 void TriangleDelux::release() {
