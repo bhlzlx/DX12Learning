@@ -29,14 +29,16 @@ private:
     ComPtr<ID3D12CommandAllocator>      m_uploadCommandAllocator;
     ComPtr<ID3D12GraphicsCommandList>   m_uploadCommandList;
     //
-    ComPtr<ID3D12Fence>                 m_fences[MaxFlightCount];
+    ComPtr<ID3D12Fence>                 m_graphicsFences[MaxFlightCount];
     HANDLE                              m_graphicsFenceEvent;
-    uint64_t                            m_fenceValues[MaxFlightCount];
+    uint64_t                            m_graphicsFenceValues[MaxFlightCount];
+    //
     bool                                m_running;
     //
     ComPtr<ID3D12Fence>                 m_uploadFence;
     HANDLE                              m_uploadFenceEvent;
     uint64_t                            m_uploadFenceValue;
+    //
     uint32_t                            m_flightIndex;
 public:
     DeviceDX12() {
@@ -79,12 +81,12 @@ public:
 
 class TriangleDelux : public NixApplication {
 private:
-	Nix::IArchive*				    m_archive;
+	Nix::IArchive*                  m_archive;
     DeviceDX12                      m_device;
 	//  
-    void*						    m_hwnd;
-    ComPtr<IDXGISwapChain3>		    m_swapchain;
-    uint32_t					    m_flightIndex;
+    void*                           m_hwnd;
+    ComPtr<IDXGISwapChain3>         m_swapchain;
+    uint32_t                        m_flightIndex;
     //
     ComPtr<ID3D12DescriptorHeap>    m_rtvDescriptorHeap;
     uint32_t                        m_rtvDescriptorSize;
@@ -103,11 +105,17 @@ private:
     
 
 public:
+    
 	virtual bool initialize(void* _wnd, Nix::IArchive*);
+
 	virtual void resize(uint32_t _width, uint32_t _height);
+
 	virtual void release();
+
 	virtual void tick();
+
 	virtual const char * title();
+
 	virtual uint32_t rendererType();
 };
 

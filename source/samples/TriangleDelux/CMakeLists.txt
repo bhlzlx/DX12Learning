@@ -10,7 +10,7 @@ set( PROJECT_SOURCE
 )
 
 set ( PROJECT_HEADER 
-   ${CMAKE_CURRENT_SOURCE_DIR}/TriangleDelux.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/TriangleDelux.h
 )
 
 add_executable( TriangleDelux WIN32

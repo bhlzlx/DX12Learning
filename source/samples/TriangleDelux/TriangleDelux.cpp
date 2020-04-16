@@ -67,8 +67,8 @@ bool DeviceDX12::initialize() {
 		m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_graphicsCommandAllocator[i].Get(), nullptr, IID_PPV_ARGS(&m_graphicsCommandLists[i]));
 		m_graphicsCommandLists[i]->Close();
 		// Create fences & initialize fence values
-		m_device->CreateFence( 0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fences[i]));
-		m_fenceValues[i] = 0;
+		m_device->CreateFence( 0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_graphicsFences[i]));
+		m_graphicsFenceValues[i] = 0;
 	}
 	// Create graphics fence event
 	m_graphicsFenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
@@ -96,7 +96,7 @@ DeviceDX12::executeCommand( ComPtr<ID3D12GraphicsCommandList>& _commandList ) {
 	};
 	m_graphicsCommandQueue->ExecuteCommandLists( 1, lists );
 	//
-	HRESULT rst = m_graphicsCommandQueue->Signal( m_fences[m_flightIndex].Get(), m_fenceValues[m_flightIndex] );
+	HRESULT rst = m_graphicsCommandQueue->Signal( m_graphicsFences[m_flightIndex].Get(), m_graphicsFenceValues[m_flightIndex] );
 	if (FAILED(rst)) {
 		m_running = false;
 	}
@@ -140,7 +140,7 @@ ComPtr<IDXGISwapChain3> DeviceDX12::createSwapchain( HWND _hwnd, uint32_t _width
 ComPtr<ID3D12GraphicsCommandList> 
 DeviceDX12::onTick( uint64_t _dt, uint32_t _flightIndex ) {
 	m_flightIndex = _flightIndex;
-	++m_fenceValues[m_flightIndex];
+	++m_graphicsFenceValues[m_flightIndex];
 	HRESULT rst;
 	auto& cmdAllocator = m_graphicsCommandAllocator[m_flightIndex];
 	auto& cmdList = m_graphicsCommandLists[m_flightIndex];
@@ -154,9 +154,9 @@ DeviceDX12::onTick( uint64_t _dt, uint32_t _flightIndex ) {
 
 void
 DeviceDX12::waitForFlight( uint32_t _flight ) {
-	if (m_fences[_flight]->GetCompletedValue() < m_fenceValues[_flight]) {
+	if (m_graphicsFences[_flight]->GetCompletedValue() < m_graphicsFenceValues[_flight]) {
 		HRESULT rst;
-		rst = m_fences[_flight]->SetEventOnCompletion(m_fenceValues[_flight], m_graphicsFenceEvent);
+		rst = m_graphicsFences[_flight]->SetEventOnCompletion(m_graphicsFenceValues[_flight], m_graphicsFenceEvent);
 		if (FAILED(rst)) {
 			m_running = false;
 		}
@@ -167,9 +167,9 @@ DeviceDX12::waitForFlight( uint32_t _flight ) {
 void
 DeviceDX12::flushGraphicsQueue() {
 	for( uint32_t flightIndex = 0; flightIndex < MaxFlightCount; ++flightIndex) {
-		++m_fenceValues[flightIndex];
-		HRESULT rst = m_graphicsCommandQueue->Signal( m_fences[flightIndex].Get(), m_fenceValues[flightIndex] );
-		rst = m_fences[flightIndex]->SetEventOnCompletion(m_fenceValues[flightIndex], m_graphicsFenceEvent);
+		++m_graphicsFenceValues[flightIndex];
+		HRESULT rst = m_graphicsCommandQueue->Signal( m_graphicsFences[flightIndex].Get(), m_graphicsFenceValues[flightIndex] );
+		rst = m_graphicsFences[flightIndex]->SetEventOnCompletion(m_graphicsFenceValues[flightIndex], m_graphicsFenceEvent);
 		if (FAILED(rst)) {
 			m_running = false;
 		}
@@ -365,8 +365,6 @@ DeviceDX12::createTexture() {
 		}
         WaitForSingleObject( m_uploadFenceEvent, INFINITE);
 	}
-	//
-	// stagingBuffer->Release();
 	// Return!!
 	return texture;
 }
