@@ -100,23 +100,20 @@ private:
     // Resources
 	ComPtr<ID3D12Resource>		    m_vertexBuffer;
 	D3D12_VERTEX_BUFFER_VIEW	    m_vertexBufferView;    
-
+    // Texture
 	ComPtr<ID3D12Resource>		    m_simpleTexture;
-    
-
 public:
-    
-	virtual bool initialize(void* _wnd, Nix::IArchive*);
+	virtual bool initialize(void* _wnd, Nix::IArchive*) override;
 
-	virtual void resize(uint32_t _width, uint32_t _height);
+	virtual void resize(uint32_t _width, uint32_t _height) override;
 
-	virtual void release();
+	virtual void release() override;
 
-	virtual void tick();
+	virtual void tick() override;
 
-	virtual const char * title();
+	virtual const char * title() override;
 
-	virtual uint32_t rendererType();
+	virtual uint32_t rendererType() override;
 };
 
 NixApplication* GetApplication();

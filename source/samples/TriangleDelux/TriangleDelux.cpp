@@ -400,41 +400,63 @@ bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
 		}
 	}
 
-//	CD3DX12_DESCRIPTOR_RANGE1 vertexDescriptorRanges[1];{
-//		vertexDescriptorRanges[0].Init( D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
-//	}
-//
-//	CD3DX12_DESCRIPTOR_RANGE1 pixelDescriptorRanges[2];{
-//		// uniform buffer
-//		pixelDescriptorRanges[0].Init(
-//			D3D12_DESCRIPTOR_RANGE_TYPE_SRV,				// descriptor type
-//			1,												// descriptor count
-//			0,												// base shader register
-//			0,												// register space
-//			D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC				// descriptor data type
-//		);
-//		// sampler & texture
-//		pixelDescriptorRanges[1].Init(
-//			D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER,			// descriptor type
-//			1,												// descriptor count
-//			0,												// base shader register
-//			0,												// register space
-//			D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE// descriptor data type
-//		);
-//	}
-//
-//	constexpr int vertexRangeCount = sizeof(vertexDescriptorRanges)/sizeof(CD3DX12_DESCRIPTOR_RANGE1);
-//	constexpr int pixelRangeCount = sizeof(pixelDescriptorRanges)/sizeof(CD3DX12_DESCRIPTOR_RANGE1);
-//	//
-//	CD3DX12_ROOT_PARAMETER1 rootParameters[3];{
-//		rootParameters[0].InitAsDescriptorTable( vertexRangeCount , &vertexDescriptorRanges[0], D3D12_SHADER_VISIBILITY_VERTEX );
-//		rootParameters[1].InitAsDescriptorTable( 1 , &pixelDescriptorRanges[0], D3D12_SHADER_VISIBILITY_PIXEL );
-//		rootParameters[2].InitAsDescriptorTable( 1 , &pixelDescriptorRanges[1], D3D12_SHADER_VISIBILITY_PIXEL );
-//	}
+	CD3DX12_DESCRIPTOR_RANGE1 vertexDescriptorRanges[1];{
+		// vertex constant buffer / uniform
+		vertexDescriptorRanges[0].Init(
+			D3D12_DESCRIPTOR_RANGE_TYPE_CBV,			// type
+			1,											// descriptor count
+			0,											// base register
+			0,											// register space
+			D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC 	// descriptor range flag
+		);
+	}
+
+	CD3DX12_DESCRIPTOR_RANGE1 pixelDescriptorRanges[2];{
+		// fragment texture
+		pixelDescriptorRanges[0].Init(
+			D3D12_DESCRIPTOR_RANGE_TYPE_SRV,				// descriptor type
+			1,												// descriptor count
+			0,												// base shader register
+			0,												// register space
+			D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC			// descriptor data type
+		);
+		// fragment sampler
+		pixelDescriptorRanges[1].Init(
+			D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER,			// descriptor type
+			1,												// descriptor count
+			0,												// base shader register
+			0,												// register space
+			D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE// descriptor data type
+		);
+	}
+
+	constexpr int vertexRangeCount = sizeof(vertexDescriptorRanges)/sizeof(CD3DX12_DESCRIPTOR_RANGE1);
+	constexpr int pixelRangeCount = sizeof(pixelDescriptorRanges)/sizeof(CD3DX12_DESCRIPTOR_RANGE1);
+	//
+	CD3DX12_ROOT_PARAMETER1 rootParameters[3];{
+		rootParameters[0].InitAsDescriptorTable( vertexRangeCount , &vertexDescriptorRanges[0], D3D12_SHADER_VISIBILITY_VERTEX );
+		rootParameters[1].InitAsDescriptorTable( 1 , &pixelDescriptorRanges[0], D3D12_SHADER_VISIBILITY_PIXEL );
+		rootParameters[2].InitAsDescriptorTable( 1 , &pixelDescriptorRanges[1], D3D12_SHADER_VISIBILITY_PIXEL );
+	}
+
+	D3D12_STATIC_SAMPLER_DESC sampler = {}; {
+		sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+        sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+        sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+        sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+        sampler.MipLODBias = 0;
+        sampler.MaxAnisotropy = 0;
+        sampler.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+        sampler.BorderColor = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
+        sampler.MinLOD = 0.0f;
+        sampler.MaxLOD = D3D12_FLOAT32_MAX;
+        sampler.ShaderRegister = 0;
+        sampler.RegisterSpace = 0;
+        sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	}        
 
 	CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc {};{
-		// rootSignatureDesc.Init_1_1( 2, rootParameters, 0, nullptr );
-		rootSignatureDesc.Init_1_1( 0, nullptr, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT );
+		rootSignatureDesc.Init_1_1( 3, rootParameters, 1, &sampler, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT );
 	}
 
 	ComPtr<ID3DBlob> signature;
@@ -463,7 +485,7 @@ bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
 	ID3DBlob* fragmentShader = nullptr;
 	ID3DBlob* errorBuff = nullptr;
 	//
-	auto file = m_archive->open("shaders/triangle/vertexShader.hlsl", 1);
+	auto file = m_archive->open("shaders/triangleDelux/vertexShader.hlsl", 1);
 	if (!file) {
 		return false;
 	}
@@ -472,7 +494,7 @@ bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
 		file->size(),
 		"vertexShader.hlsl", 
 		nullptr, nullptr, 
-		"main", "vs_5_0", 
+		"VsMain", "vs_5_0", 
 		D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION,
 		0,
 		&vertexShader,
@@ -485,7 +507,7 @@ bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
 	}
 	file->release();
 	//
-	file = m_archive->open("shaders/triangle/fragmentShader.hlsl", 1);
+	file = m_archive->open("shaders/triangleDelux/fragmentShader.hlsl", 1);
 	if (!file) {
 		return false;
 	}
@@ -494,7 +516,7 @@ bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
 		file->size(),
 		"fragmentShader.hlsl",
 		nullptr, nullptr,
-		"main", "ps_5_0",
+		"PsMain", "ps_5_0",
 		D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION,
 		0,
 		&fragmentShader,
@@ -517,17 +539,26 @@ bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
 	}
 
 	D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
-		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
+		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+		{ 
+			"TEXCOORD", // Semantic Name
+			0,			// Semantic Index
+			DXGI_FORMAT_R32G32_FLOAT, // Format
+			1, // Slot Index
+			0, // Offset
+			D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, // InputSlotClass
+			0 // step rate
+		},
 	};
 
 	D3D12_INPUT_LAYOUT_DESC inputLayoutDesc = {}; {
-		inputLayoutDesc.NumElements = 1;
+		inputLayoutDesc.NumElements = 2;
 		inputLayoutDesc.pInputElementDescs = &inputLayout[0];
 	}
+
 	DXGI_SAMPLE_DESC sampleDesc = {}; {
 		sampleDesc.Count = 1;
 	}
-
 	// create pipeline state
 
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC pipelineStateDesc = {}; {
