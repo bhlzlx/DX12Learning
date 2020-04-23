@@ -90,6 +90,9 @@ private:
     //
     ComPtr<ID3D12DescriptorHeap>    m_rtvDescriptorHeap;
     uint32_t                        m_rtvDescriptorSize;
+    ComPtr<ID3D12DescriptorHeap>    m_samplerDescriptorHeap;
+    D3D12_CPU_DESCRIPTOR_HANDLE     m_samplerHandle;
+    uint32_t                        m_samplerDescriptorSize;
     ComPtr<ID3D12DescriptorHeap>    m_pipelineDescriptorHeap;
     ComPtr<ID3D12Resource>          m_renderTargets[MaxFlightCount];
     //
@@ -101,7 +104,7 @@ private:
 	ComPtr<ID3D12Resource>		    m_vertexBuffer;
 	D3D12_VERTEX_BUFFER_VIEW	    m_vertexBufferView;    
     // Texture
-	ComPtr<ID3D12Resource>		    m_simpleTexture;
+	// ComPtr<ID3D12Resource>		    m_simpleTexture;
 public:
 	virtual bool initialize(void* _wnd, Nix::IArchive*) override;
 

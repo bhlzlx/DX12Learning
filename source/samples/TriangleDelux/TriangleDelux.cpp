@@ -391,7 +391,7 @@ bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
 	ComPtr<ID3D12Device> device = (ComPtr<ID3D12Device>)m_device;
 
 	D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};{
-        srvHeapDesc.NumDescriptors = 1;
+        srvHeapDesc.NumDescriptors = 2; // constant buffer & texture view
         srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         rst = device->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&m_pipelineDescriptorHeap));
@@ -399,6 +399,8 @@ bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
 			return false;
 		}
 	}
+
+	device->CreateConstantBufferView();
 
 	CD3DX12_DESCRIPTOR_RANGE1 vertexDescriptorRanges[1];{
 		// vertex constant buffer / uniform
@@ -424,7 +426,7 @@ bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
 		pixelDescriptorRanges[1].Init(
 			D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER,			// descriptor type
 			1,												// descriptor count
-			0,												// base shader register
+			1,												// base shader register
 			0,												// register space
 			D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE// descriptor data type
 		);
@@ -468,6 +470,7 @@ bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
 	featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
 	if ( FAILED(device->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData)))) {
 		featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
+		
 	}
 	
 	rst = D3DX12SerializeVersionedRootSignature( &rootSignatureDesc, featureData.HighestVersion, &signature, &error);
@@ -643,18 +646,29 @@ void TriangleDelux::resize(uint32_t _width, uint32_t _height) {
 			m_swapchain = m_device.createSwapchain((HWND)m_hwnd, _width, _height );
 
 			ComPtr<ID3D12Device> device = (ComPtr<ID3D12Device>)m_device;
-
+			// create rtv heap
 			D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc = {}; {
 				rtvHeapDesc.NumDescriptors = MaxFlightCount;
 				rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
 				rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
 			}
-			//
 			rst = device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_rtvDescriptorHeap));
 			if( FAILED(rst)) {
 				return;
 			}
+			// create sampler heap
+			D3D12_DESCRIPTOR_HEAP_DESC samplerHeapDesc = {}; {
+				samplerHeapDesc.NumDescriptors = 1;
+				samplerHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
+				samplerHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+			}
+			rst = device->CreateDescriptorHeap(&samplerHeapDesc, IID_PPV_ARGS(&m_rtvDescriptorHeap));
+			if( FAILED(rst)) {
+				return;
+			}
+			//
 			m_rtvDescriptorSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+			m_samplerDescriptorSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
 			// 7. create render targets & render target view
 			// Create a RTV for each buffer (double buffering is two buffers, tripple buffering is 3).
 			D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = m_rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
@@ -669,6 +683,24 @@ void TriangleDelux::resize(uint32_t _width, uint32_t _height) {
 				// the we "create" a render target view which binds the swap chain buffer (ID3D12Resource[n]) to the rtv handle
 				device->CreateRenderTargetView( m_renderTargets[i].Get(), nullptr, { rtvHandle.ptr + m_rtvDescriptorSize * i });
 			}
+			// 8 create sampler object
+			D3D12_SAMPLER_DESC sampler = {};{
+				sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+				sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+				sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+				sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+				sampler.MipLODBias = 0;
+				sampler.MaxAnisotropy = 0;
+				sampler.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+				sampler.BorderColor[0] = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
+				sampler.BorderColor[1] = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
+				sampler.BorderColor[2] = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
+				sampler.BorderColor[3] = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
+				sampler.MinLOD = 0.0f;
+				sampler.MaxLOD = D3D12_FLOAT32_MAX;
+			}
+			D3D12_CPU_DESCRIPTOR_HANDLE samplerHandle = m_samplerDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
+			device->CreateSampler( &sampler, samplerHandle);
         }
 		else {
 			ComPtr<ID3D12Device> device = (ComPtr<ID3D12Device>)m_device;
@@ -732,8 +764,10 @@ void TriangleDelux::tick() {
         // clear color
         commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
         // transfrom the render target's layout
-
 		commandList->SetGraphicsRootSignature(m_pipelineRootSignature);
+		//
+		commandList->SetDescriptorHeaps( )
+		//
 		commandList->SetPipelineState(m_pipelineStateObject);
 		commandList->RSSetViewports(1, &m_viewport);
 		commandList->RSSetScissorRects(1, &m_scissor);
