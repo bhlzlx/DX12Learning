@@ -311,15 +311,15 @@ DeviceDX12::createTexture() {
 	// Create staging buffer
 	ComPtr<ID3D12Resource> stagingBuffer = nullptr;
 	//
-	uint32_t pixelData[] = {
-		0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff,
-		0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff,
-		0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff,
-		0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff,
-		0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff,
-		0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff,
-		0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff,
-		0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff,
+	uint32_t pixelData[8][64] = {{
+			0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff},{
+			0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff},{
+			0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff},{
+			0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff},{
+			0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff},{
+			0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff},{
+			0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff},{
+			0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff, 0x000000ff, 0xffffffff}		
 	};
 	
 	m_device->CreateCommittedResource(
@@ -392,6 +392,8 @@ bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
 
 	ComPtr<ID3D12Device> device = (ComPtr<ID3D12Device>)m_device;
 
+	this->m_simpleTexture = m_device.createTexture();
+
 	// constant buffer & texture view descriptor HEAP!
 
 	D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};{
@@ -411,32 +413,42 @@ bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
 		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
 		D3D12_HEAP_FLAG_NONE,
 		&CD3DX12_RESOURCE_DESC::Buffer(256 * 2),
-		D3D12_RESOURCE_STATE_COMMON,
+		D3D12_RESOURCE_STATE_GENERIC_READ,
 		nullptr,
 		IID_PPV_ARGS(&m_constantBuffer)
 	);
 	if(FAILED(rst)) {
 		return false;
 	}
+	void* mappedPtr = nullptr;
+	m_constantBuffer->Map( 0, nullptr, &mappedPtr);
+	float offset[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+	memcpy( mappedPtr, &offset, sizeof(offset) );
+	m_constantBuffer->Unmap(0, nullptr);
+
 	m_constantBuffer->SetName(L"Constant Buffer");
 
 	D3D12_CONSTANT_BUFFER_VIEW_DESC cbuffViewDesc = {}; {
 		cbuffViewDesc.BufferLocation = m_constantBuffer->GetGPUVirtualAddress();
 		cbuffViewDesc.SizeInBytes = 256 * 2;
 	}
-
-	D3D12_CPU_DESCRIPTOR_HANDLE cbuffHandle = m_pipelineDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
-	cbuffHandle.ptr += CbvSrvDescriptorSize;
+	// 在 heap 上创建需要使用 CPU handle，但是在渲染绑定的时候绑定的是 GPU handle
+	CD3DX12_CPU_DESCRIPTOR_HANDLE pipelineCPUDescriptorHandlerStart( m_pipelineDescriptorHeap->GetCPUDescriptorHandleForHeapStart() );
+	CD3DX12_GPU_DESCRIPTOR_HANDLE pipelineGPUDescriptorHandlerStart( m_pipelineDescriptorHeap->GetGPUDescriptorHandleForHeapStart() );
+	// 存下来GPU handle
+	m_simpleTextureViewGPUDescriptorHandle = pipelineGPUDescriptorHandlerStart;
+	m_constantBufferGPUDescriptorHandle = pipelineGPUDescriptorHandlerStart.Offset(CbvSrvDescriptorSize);
 	//
-	device->CreateConstantBufferView(&cbuffViewDesc, cbuffHandle);
-
 	D3D12_SHADER_RESOURCE_VIEW_DESC textureResourceViewDesc = {};{
 		textureResourceViewDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         textureResourceViewDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
         textureResourceViewDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
         textureResourceViewDesc.Texture2D.MipLevels = 1;
 	}
-    device->CreateShaderResourceView( m_simpleTexture.Get(), &textureResourceViewDesc, m_pipelineDescriptorHeap->GetCPUDescriptorHandleForHeapStart() );
+	// 创建 texture view
+    device->CreateShaderResourceView( m_simpleTexture.Get(), &textureResourceViewDesc, pipelineCPUDescriptorHandlerStart );
+	// 创建 constant buffer view
+	device->CreateConstantBufferView( &cbuffViewDesc, pipelineCPUDescriptorHandlerStart.Offset(CbvSrvDescriptorSize));
 	//
 	CD3DX12_DESCRIPTOR_RANGE1 vertexDescriptorRanges[1];{
 		// vertex constant buffer / uniform
@@ -456,7 +468,7 @@ bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
 			1,												// descriptor count
 			0,												// base shader register
 			0,												// register space
-			D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC			// descriptor data type
+			D3D12_DESCRIPTOR_RANGE_FLAG_NONE				// descriptor data type
 		);
 		// fragment sampler
 		pixelDescriptorRanges[1].Init(
@@ -583,8 +595,8 @@ bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
 			"TEXCOORD", // Semantic Name
 			0,			// Semantic Index
 			DXGI_FORMAT_R32G32_FLOAT, // Format
-			1, // Slot Index
-			0, // Offset
+			0, // Slot Index
+			12, // Offset
 			D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, // InputSlotClass
 			0 // step rate
 		},
@@ -643,8 +655,6 @@ bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
 		this->m_vertexBufferView.SizeInBytes = sizeof(vertexData);
 		this->m_vertexBufferView.StrideInBytes = sizeof(Vertex);
 	}
-	
-	this->m_simpleTexture = m_device.createTexture();
 	// create a vertex buffer view for the triangle. We get the GPU memory address to the vertex pointer using the GetGPUVirtualAddress() method
 	m_vertexBufferView.BufferLocation = m_vertexBuffer->GetGPUVirtualAddress();
 	m_vertexBufferView.StrideInBytes = sizeof(Vertex);
@@ -682,7 +692,7 @@ void TriangleDelux::resize(uint32_t _width, uint32_t _height) {
 			m_swapchain = m_device.createSwapchain((HWND)m_hwnd, _width, _height );
 
 			ComPtr<ID3D12Device> device = (ComPtr<ID3D12Device>)m_device;
-			// create rtv heap
+			// create render target view descriptor heap
 			D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc = {}; {
 				rtvHeapDesc.NumDescriptors = MaxFlightCount;
 				rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
@@ -692,19 +702,7 @@ void TriangleDelux::resize(uint32_t _width, uint32_t _height) {
 			if( FAILED(rst)) {
 				return;
 			}
-			// create sampler heap
-			D3D12_DESCRIPTOR_HEAP_DESC samplerHeapDesc = {}; {
-				samplerHeapDesc.NumDescriptors = 1;
-				samplerHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
-				samplerHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-			}
-			rst = device->CreateDescriptorHeap(&samplerHeapDesc, IID_PPV_ARGS(&m_samplerDescriptorHeap));
-			if( FAILED(rst)) {
-				return;
-			}
-			//
 			m_rtvDescriptorSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-			m_samplerDescriptorSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
 			// 7. create render targets & render target view
 			// Create a RTV for each buffer (double buffering is two buffers, tripple buffering is 3).
 			D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = m_rtvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
@@ -719,6 +717,19 @@ void TriangleDelux::resize(uint32_t _width, uint32_t _height) {
 				// the we "create" a render target view which binds the swap chain buffer (ID3D12Resource[n]) to the rtv handle
 				device->CreateRenderTargetView( m_renderTargets[i].Get(), nullptr, { rtvHandle.ptr + m_rtvDescriptorSize * i });
 			}
+			// create sampler heap
+			D3D12_DESCRIPTOR_HEAP_DESC samplerHeapDesc = {}; {
+				samplerHeapDesc.NumDescriptors = 1;
+				samplerHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
+				samplerHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+			}
+			rst = device->CreateDescriptorHeap(&samplerHeapDesc, IID_PPV_ARGS(&m_samplerDescriptorHeap));
+			if( FAILED(rst)) {
+				return;
+			}
+			m_samplerDescriptorSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+			m_samplerGPUDescriptorHandle = m_samplerDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
+			
 			// 8 create sampler object
 			D3D12_SAMPLER_DESC sampler = {};{
 				sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
@@ -802,7 +813,17 @@ void TriangleDelux::tick() {
         // transfrom the render target's layout
 		commandList->SetGraphicsRootSignature(m_pipelineRootSignature);
 		//
-		// commandList->SetDescriptorHeaps( )
+		ID3D12DescriptorHeap* heaps[] = {
+			m_pipelineDescriptorHeap.Get(),
+			m_samplerDescriptorHeap.Get()
+		};
+		commandList->SetDescriptorHeaps( 2, heaps );
+		// 第[0]个是 const buffer view descriptor
+		commandList->SetGraphicsRootDescriptorTable(0, m_constantBufferGPUDescriptorHandle );
+		// 第[1] 个是 texture view descriptor
+		commandList->SetGraphicsRootDescriptorTable(1, m_simpleTextureViewGPUDescriptorHandle );
+		// 第[2] 个是 sampler descriptor
+		commandList->SetGraphicsRootDescriptorTable(2, m_samplerGPUDescriptorHandle);
 		//
 		commandList->SetPipelineState(m_pipelineStateObject);
 		commandList->RSSetViewports(1, &m_viewport);

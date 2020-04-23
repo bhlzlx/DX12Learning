@@ -1,9 +1,10 @@
-#include <NixApplication.h>
+﻿#include <NixApplication.h>
 //#include <nix/io/archieve.h>
 #include <cstdio>
 #include <dxgi.h>
 #include <dxgi1_4.h>
 #include <d3d12.h>
+#include "d3dx12.h"
 #include <algorithm>
 #include <wrl/client.h>
 
@@ -42,7 +43,6 @@ private:
     uint32_t                            m_flightIndex;
 public:
     DeviceDX12() {
-
     }
 
     bool 
@@ -91,7 +91,6 @@ private:
     ComPtr<ID3D12DescriptorHeap>    m_rtvDescriptorHeap;
     uint32_t                        m_rtvDescriptorSize;
     ComPtr<ID3D12DescriptorHeap>    m_samplerDescriptorHeap;
-    D3D12_CPU_DESCRIPTOR_HANDLE     m_samplerHandle;
     uint32_t                        m_samplerDescriptorSize;
     ComPtr<ID3D12DescriptorHeap>    m_pipelineDescriptorHeap;
     ComPtr<ID3D12Resource>          m_renderTargets[MaxFlightCount];
@@ -102,12 +101,16 @@ private:
 	D3D12_RECT					    m_scissor;
     // Resources
 	ComPtr<ID3D12Resource>		    m_vertexBuffer;
-	D3D12_VERTEX_BUFFER_VIEW	    m_vertexBufferView;    
+	D3D12_VERTEX_BUFFER_VIEW	    m_vertexBufferView;
     // Constant buffer
     ComPtr<ID3D12Resource>          m_constantBuffer;
+    CD3DX12_GPU_DESCRIPTOR_HANDLE   m_constantBufferGPUDescriptorHandle;
     size_t                          m_constantBufferFlightSize;
     // Texture
 	ComPtr<ID3D12Resource>		    m_simpleTexture;
+    CD3DX12_GPU_DESCRIPTOR_HANDLE   m_simpleTextureViewGPUDescriptorHandle;
+    // Sampler 其实我们能发现，sampler 对程序员来说无需管理GPU资源，实际可能占也可能不占，我们能管理的也只有 heap/handle
+    D3D12_GPU_DESCRIPTOR_HANDLE     m_samplerGPUDescriptorHandle;
 public:
 	virtual bool initialize(void* _wnd, Nix::IArchive*) override;
 
