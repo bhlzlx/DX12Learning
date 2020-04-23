@@ -350,6 +350,8 @@ DeviceDX12::createTexture() {
 	}
 	m_uploadCommandList->Close();
 	//
+	// m_device->CreateCommittedResource()
+	//
 	ID3D12CommandList* lists[] = {
 		m_uploadCommandList.Get()
 	};
@@ -390,6 +392,8 @@ bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
 
 	ComPtr<ID3D12Device> device = (ComPtr<ID3D12Device>)m_device;
 
+	// constant buffer & texture view descriptor HEAP!
+
 	D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};{
         srvHeapDesc.NumDescriptors = 2; // constant buffer & texture view
         srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
@@ -399,9 +403,41 @@ bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
 			return false;
 		}
 	}
+	// 第一个给 纹理吧，第二个给ConstantBuffer
 
-	device->CreateConstantBufferView();
+	auto CbvSrvDescriptorSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
+	rst = device->CreateCommittedResource( 
+		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+		D3D12_HEAP_FLAG_NONE,
+		&CD3DX12_RESOURCE_DESC::Buffer(256 * 2),
+		D3D12_RESOURCE_STATE_COMMON,
+		nullptr,
+		IID_PPV_ARGS(&m_constantBuffer)
+	);
+	if(FAILED(rst)) {
+		return false;
+	}
+	m_constantBuffer->SetName(L"Constant Buffer");
+
+	D3D12_CONSTANT_BUFFER_VIEW_DESC cbuffViewDesc = {}; {
+		cbuffViewDesc.BufferLocation = m_constantBuffer->GetGPUVirtualAddress();
+		cbuffViewDesc.SizeInBytes = 256 * 2;
+	}
+
+	D3D12_CPU_DESCRIPTOR_HANDLE cbuffHandle = m_pipelineDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
+	cbuffHandle.ptr += CbvSrvDescriptorSize;
+	//
+	device->CreateConstantBufferView(&cbuffViewDesc, cbuffHandle);
+
+	D3D12_SHADER_RESOURCE_VIEW_DESC textureResourceViewDesc = {};{
+		textureResourceViewDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        textureResourceViewDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        textureResourceViewDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        textureResourceViewDesc.Texture2D.MipLevels = 1;
+	}
+    device->CreateShaderResourceView( m_simpleTexture.Get(), &textureResourceViewDesc, m_pipelineDescriptorHeap->GetCPUDescriptorHandleForHeapStart() );
+	//
 	CD3DX12_DESCRIPTOR_RANGE1 vertexDescriptorRanges[1];{
 		// vertex constant buffer / uniform
 		vertexDescriptorRanges[0].Init(
@@ -662,7 +698,7 @@ void TriangleDelux::resize(uint32_t _width, uint32_t _height) {
 				samplerHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
 				samplerHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 			}
-			rst = device->CreateDescriptorHeap(&samplerHeapDesc, IID_PPV_ARGS(&m_rtvDescriptorHeap));
+			rst = device->CreateDescriptorHeap(&samplerHeapDesc, IID_PPV_ARGS(&m_samplerDescriptorHeap));
 			if( FAILED(rst)) {
 				return;
 			}
@@ -766,7 +802,7 @@ void TriangleDelux::tick() {
         // transfrom the render target's layout
 		commandList->SetGraphicsRootSignature(m_pipelineRootSignature);
 		//
-		commandList->SetDescriptorHeaps( )
+		// commandList->SetDescriptorHeaps( )
 		//
 		commandList->SetPipelineState(m_pipelineStateObject);
 		commandList->RSSetViewports(1, &m_viewport);

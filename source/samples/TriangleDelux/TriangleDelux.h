@@ -103,8 +103,11 @@ private:
     // Resources
 	ComPtr<ID3D12Resource>		    m_vertexBuffer;
 	D3D12_VERTEX_BUFFER_VIEW	    m_vertexBufferView;    
+    // Constant buffer
+    ComPtr<ID3D12Resource>          m_constantBuffer;
+    size_t                          m_constantBufferFlightSize;
     // Texture
-	// ComPtr<ID3D12Resource>		    m_simpleTexture;
+	ComPtr<ID3D12Resource>		    m_simpleTexture;
 public:
 	virtual bool initialize(void* _wnd, Nix::IArchive*) override;
 
