@@ -11,8 +11,7 @@ namespace kwheel
         FILE* _handle = nullptr;
 		size_t _size = 0;
         //
-        StdFile()
-        {
+        StdFile() {
         }
     public:
 
