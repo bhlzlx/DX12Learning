@@ -36,18 +36,18 @@ extern "C" int main(int argc, char** argv)
 
 	// uint32_t windowFlag = SDL_WINDOW_RESIZABLE;
 	// switch( dt ){
-	// 	case Nix::Vulkan:
+	// 	case kwheelVulkan:
 	// 		windowFlag = SDL_WINDOW_RESIZABLE | SDL_WINDOW_VULKAN;
 	// 		break;
-	// 	case Nix::GLES3:
+	// 	case kwheelGLES3:
 	// 		windowFlag = SDL_WINDOW_RESIZABLE;
 	// 		break;
-	// 	case Nix::DX12:
+	// 	case kwheelDX12:
 	// 		windowFlag = SDL_WINDOW_RESIZABLE;
 	// 		break;
 	// }
 	window = SDL_CreateWindow(object->title(), SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 640, 480, SDL_WINDOW_RESIZABLE);
-	Nix::IArchieve* arch = Nix::CreateStdArchieve(assetRoot);
+	kwheel::IArchive* arch = kwheel::CreateStdArchieve(assetRoot);
 	struct SDL_SysWMinfo wmInfo;
 	SDL_VERSION(&wmInfo.version);
 	if (-1 == SDL_GetWindowWMInfo(window, &wmInfo)) {

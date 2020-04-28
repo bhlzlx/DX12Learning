@@ -735,7 +735,7 @@ namespace Nix {
 	//
 	class NIX_API_DECL IDriver {
 	public:
-		virtual bool initialize(Nix::IArchive* _arch, DeviceType _type) = 0;
+		virtual bool initialize(kwheel::IArchive* _arch, DeviceType _type) = 0;
 		virtual void release() = 0;
 		virtual IContext* createContext(void* _hwnd) = 0;
 		virtual IArchive* getArchieve() = 0;
@@ -793,5 +793,5 @@ namespace Nix {
 }
 
 extern "C" {
-	NIX_API_DECL Nix::IDriver* createDriver();
+	NIX_API_DECL kwheelIDriver* createDriver();
 }

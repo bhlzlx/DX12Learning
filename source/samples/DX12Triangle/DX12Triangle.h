@@ -10,7 +10,7 @@ constexpr uint32_t MaxFlightCount = 2;
 
 class DX12Triangle : public NixApplication {
 private:
-	Nix::IArchive*				m_archive;
+	kwheel::IArchive*				m_archive;
 	//
     void*						m_hwnd;
     IDXGIFactory4*				m_dxgiFactory;
@@ -37,10 +37,10 @@ private:
 	D3D12_VIEWPORT				m_viewport;
 	D3D12_RECT					m_scissor;
 	ID3D12Resource*				m_vertexBuffer;
-	D3D12_VERTEX_BUFFER_VIEW	m_vertexBufferView; // ÆäÊµÕâ¸öbufferview ²»ÊÇview objectÖ»ÊÇ¸úOpenGL±È½ÏÀàËÆµÄ¶«Î÷¡£
+	D3D12_VERTEX_BUFFER_VIEW	m_vertexBufferView; // ï¿½ï¿½Êµï¿½ï¿½ï¿½bufferview ï¿½ï¿½ï¿½ï¿½view objectÖ»ï¿½Ç¸ï¿½OpenGLï¿½È½ï¿½ï¿½ï¿½ï¿½ÆµÄ¶ï¿½ï¿½ï¿½ï¿½ï¿½
 
 public:
-	virtual bool initialize(void* _wnd, Nix::IArchive*);
+	virtual bool initialize(void* _wnd, kwheel::IArchive*);
 	virtual void resize(uint32_t _width, uint32_t _height);
 	virtual void release();
 	virtual void tick();

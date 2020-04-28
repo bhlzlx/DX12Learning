@@ -1,7 +1,7 @@
 #include <windows.h>
 #include "Resource.h"
 #include <NixApplication.h>
-#include <Nix/io/archive.h>
+#include <kwheel/base/io/archive.h>
 #include <string>
 #include <regex>
 
@@ -125,7 +125,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 		assetRoot = result[1];
 	}
 	assetRoot.append("/../../");
-	auto archieve = Nix::CreateStdArchieve( assetRoot );
+	auto archieve = kwheel::CreateStdArchieve( assetRoot );
 	if (!object->initialize(hWnd, archieve)) {
 		return FALSE;
 	}

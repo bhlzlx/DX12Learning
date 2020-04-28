@@ -3,7 +3,7 @@
 #include "d3dx12.h"
 #include <DirectXMath.h>
 #include <wrl/client.h>
-#include <nix/io/archive.h>
+#include <kwheel/base/io/archive.h>
 
 
 const char vertexShader[] = R"(
@@ -24,7 +24,7 @@ float4 main() : SV_TARGET
 
 // #include "d3dx12.h"
 
-bool DX12Triangle::initialize( void* _wnd, Nix::IArchive* _arch ) {
+bool DX12Triangle::initialize( void* _wnd, kwheel::IArchive* _arch ) {
 
 	if (!_wnd || !_arch) {
 		return false;

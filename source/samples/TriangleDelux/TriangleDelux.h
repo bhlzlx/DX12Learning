@@ -1,5 +1,5 @@
 ﻿#include <NixApplication.h>
-//#include <nix/io/archieve.h>
+#include <kwheel/base/io/archive.h>
 #include <cstdio>
 #include <dxgi.h>
 #include <dxgi1_4.h>
@@ -81,7 +81,7 @@ public:
 
 class TriangleDelux : public NixApplication {
 private:
-	Nix::IArchive*                  m_archive;
+	kwheel::IArchive*                  m_archive;
     DeviceDX12                      m_device;
 	//  
     void*                           m_hwnd;
@@ -112,7 +112,7 @@ private:
     // Sampler 其实我们能发现，sampler 对程序员来说无需管理GPU资源，实际可能占也可能不占，我们能管理的也只有 heap/handle
     D3D12_GPU_DESCRIPTOR_HANDLE     m_samplerGPUDescriptorHandle;
 public:
-	virtual bool initialize(void* _wnd, Nix::IArchive*) override;
+	virtual bool initialize(void* _wnd, kwheel::IArchive*) override;
 
 	virtual void resize(uint32_t _width, uint32_t _height) override;
 

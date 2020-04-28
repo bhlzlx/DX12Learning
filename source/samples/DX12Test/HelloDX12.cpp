@@ -2,7 +2,7 @@
 
 // #include "d3dx12.h"
 
-bool HelloDX12::initialize( void* _wnd, Nix::IArchive* ) {
+bool HelloDX12::initialize( void* _wnd, kwheel::IArchive* ) {
 	{
 		//ComPtr<ID3D12Debug> debugController;
 		ID3D12Debug* debugController;
