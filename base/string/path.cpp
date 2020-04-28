@@ -1,6 +1,6 @@
 #include "path.h"
 
-namespace kw
+namespace kwheel
 {
     std::string FormatFilePath(const std::string & _filepath)
 	{

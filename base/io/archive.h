@@ -6,7 +6,7 @@
 
 #include <string>
 
-namespace kw
+namespace kwheel
 {
     enum SeekFlag
     {
@@ -65,12 +65,12 @@ namespace kw
     class TextReader
     {
     private:
-        kw::IFile* m_textMemory;
+        kwheel::IFile* m_textMemory;
     public:
         TextReader() :
             m_textMemory(nullptr)
         {}
-        bool openFile(kw::IArchive* _arch, const std::string& _filepath);
+        bool openFile( kwheel::IArchive* _arch, const std::string& _filepath);
         const char * getText();
         ~TextReader() {
             if (m_textMemory) {
