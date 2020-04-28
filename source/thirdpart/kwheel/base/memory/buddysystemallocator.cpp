@@ -1,7 +1,7 @@
 #include "buddysystemallocator.h"
 #include <cassert>
 
-namespace kw {
+namespace kwheel {
 
 	bool BuddySystemAllocator::initialize(size_t _wholeSize, size_t _minSize) {
 		size_t layer = 0;

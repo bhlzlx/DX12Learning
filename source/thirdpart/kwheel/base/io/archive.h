@@ -6,7 +6,7 @@
 
 #include <string>
 
-namespace kw
+namespace kwheel
 {
     enum SeekFlag
     {
@@ -40,11 +40,11 @@ namespace kw
         virtual ~IFile(){}
     };
 
-    class IArchieve
+    class IArchive
     {
 	public:
         // Open
-        virtual IFile* open( const std::string& _path ) = 0;
+        virtual IFile* open( const std::string& _path, uint8_t _memoryMode = 0 ) = 0;
 		virtual bool save( const std::string& _path, const void * _data, size_t _length ) = 0;
 		virtual const char * root() = 0;
         // List
@@ -53,10 +53,10 @@ namespace kw
         // Destroy
         virtual void release() = 0;
 
-        virtual ~IArchieve(){}
+        virtual ~IArchive(){}
     };
 
-    IArchieve* CreateStdArchieve( const std::string& _path );
+    IArchive* CreateStdArchieve( const std::string& _path );
 	IFile* CreateMemoryBuffer(void * _ptr, size_t _length, IFile::MemoryFreeCB _freeCB = nullptr);
 	IFile* CreateMemoryBuffer(size_t _length, IFile::MemoryFreeCB _freeCB = [](void* _ptr) {
 		free(_ptr); 
@@ -65,12 +65,12 @@ namespace kw
     class TextReader
     {
     private:
-        kw::IFile* m_textMemory;
+        kwheel::IFile* m_textMemory;
     public:
         TextReader() :
             m_textMemory(nullptr)
         {}
-        bool openFile(kw::IArchieve* _arch, const std::string& _filepath);
+        bool openFile( kwheel::IArchive* _arch, const std::string& _filepath);
         const char * getText();
         ~TextReader() {
             if (m_textMemory) {

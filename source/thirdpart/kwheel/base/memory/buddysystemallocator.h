@@ -2,7 +2,7 @@
 #include <list>
 #include <cstdint>
 
-namespace kw {
+namespace kwheel {
 
 	class BuddySystemAllocator {
 		enum node_type_t {

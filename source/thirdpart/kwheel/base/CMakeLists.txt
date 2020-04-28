@@ -11,6 +11,6 @@ set( FILES
 	${CMAKE_CURRENT_SOURCE_DIR}/encrypt/base64.h
 )
 
-add_library( kwbase STATIC
+add_library( kwheel_base STATIC
 	${FILES}
 )

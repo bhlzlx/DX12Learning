@@ -23,5 +23,5 @@ target_link_libraries(
 	d3d12
 	dxgi
 	d3dcompiler
-    nix
+    kwheel_base
 )

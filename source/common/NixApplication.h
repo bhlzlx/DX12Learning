@@ -6,7 +6,7 @@
 #else
 #endif
 
-namespace Nix {
+namespace kwheel {
     class IRenderer;
     class IArchive;
 };
@@ -31,7 +31,7 @@ public:
 		MouseDown,
 		MouseUp
 	};
-	virtual bool initialize(void* _wnd, Nix::IArchive* _archieve) = 0;
+	virtual bool initialize(void* _wnd, kwheel::IArchive* _archieve) = 0;
 	virtual void resize(uint32_t _width, uint32_t _height) = 0;
 	virtual void release() = 0;
 	virtual void tick() = 0;

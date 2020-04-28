@@ -16,7 +16,7 @@ extern "C"{
 
 #include <vector>
 
-namespace kw
+namespace kwheel
 {
 	char16_t* ucsstr( const char16_t *s1, const char16_t *s2 )
 	{

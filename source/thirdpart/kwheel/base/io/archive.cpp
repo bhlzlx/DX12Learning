@@ -2,11 +2,11 @@
 #include <memory.h>
 #include"../string/path.h"
 
-namespace kw
+namespace kwheel
 {
     class StdFile: public IFile
     {
-        friend class StdArchieve;
+        friend class StdArchive;
     private:
         FILE* _handle = nullptr;
 		size_t _size = 0;
@@ -15,6 +15,13 @@ namespace kw
         {
         }
     public:
+
+		StdFile(StdFile&& _file) {
+			this->_handle = _file._handle;
+			this->_size = _file._size;
+			_file._handle = nullptr;
+			_file._size = 0;
+		}
 
 		virtual size_t size()
 		{
@@ -225,13 +232,13 @@ namespace kw
         }
     };
 
-    class StdArchieve: public IArchieve
+    class StdArchive: public IArchive
     {
-    friend IArchieve* CreateStdArchieve( const std::string& _path );
+    friend IArchive* CreateStdArchieve( const std::string& _path );
     private:
         std::string _root;
         //
-        virtual IFile* open( const std::string& _path ) override;
+        virtual IFile* open( const std::string& _path, uint8_t _memoryMode = 0) override;
 		virtual bool save(const std::string& _path, const void * _data, size_t _length) override;
 		virtual const char * root() {
 			return _root.c_str();
@@ -241,26 +248,36 @@ namespace kw
         //
     };
 
-    IFile* StdArchieve::open( const std::string& _path )
-    {
-        std::string fullpath = _root;
-        fullpath.append( _path );
-        auto path = FormatFilePath( fullpath );
-        auto fh = fopen( path.c_str(), "rb+" );
-        if( !fh )
-            return nullptr;
+	IFile* StdArchive::open(const std::string& _path, uint8_t _memoryMode)
+	{
+		std::string fullpath = _root;
+		fullpath.append(_path);
+		auto path = FormatFilePath(fullpath);
+		auto fh = fopen(path.c_str(), "rb+");
+		if (!fh) {
+			return nullptr;
+		}			
 		fseek(fh, 0, SEEK_SET);
 		size_t set = ftell(fh);
 		fseek(fh, 0, SEEK_END);
 		size_t size = ftell(fh) - set;
 		fseek(fh, 0, SEEK_SET);
-        StdFile* file = new StdFile();
-		file->_size = size;
-        file->_handle = fh;
-        return file;
+		if (!_memoryMode) {
+			StdFile* file = new StdFile();
+			file->_size = size;
+			file->_handle = fh;
+			return file;
+		} else {
+			void* mem = malloc(size);
+			fread(mem, 1, size, fh);
+			IFile* file = CreateMemoryBuffer(mem, size);
+			fclose(fh);
+			return file;
+		}
+		return nullptr;
     }
 
-	bool StdArchieve::save(const std::string& _path, const void * _data, size_t _length) {
+	bool StdArchive::save(const std::string& _path, const void * _data, size_t _length) {
 		std::string fullpath = _root;
 		fullpath.append(_path);
 		auto path = FormatFilePath(fullpath);
@@ -273,14 +290,14 @@ namespace kw
 		return true;
 	}
 
-    void StdArchieve::release()
+    void StdArchive::release()
     {
         delete this;
     }
 
-    IArchieve* CreateStdArchieve( const std::string& _path )
+    IArchive* CreateStdArchieve( const std::string& _path )
     {
-        StdArchieve* arch = new StdArchieve();
+        StdArchive* arch = new StdArchive();
         arch->_root = FormatFilePath(_path);
 		arch->_root.push_back('/');
         return arch;
@@ -307,14 +324,14 @@ namespace kw
 		return buffer;
 	}
 
-    bool TextReader::openFile( kw::IArchieve* _arch, const std::string& _filepath)
+    bool TextReader::openFile( kwheel::IArchive* _arch, const std::string& _filepath)
     {
         if (m_textMemory)
             m_textMemory->release();
         auto file = _arch->open(_filepath.c_str());
         if (!file)
             return false;
-        m_textMemory = kw::CreateMemoryBuffer(file->size() + 1);
+        m_textMemory = kwheel::CreateMemoryBuffer(file->size() + 1);
         m_textMemory->write(file->size(), file);
         m_textMemory->write(1, "\0");
         file->release();

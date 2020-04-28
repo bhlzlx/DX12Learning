@@ -3,7 +3,7 @@
 #include <d3dx12.h>
 #include <DirectXMath.h>
 #include <wrl/client.h>
-#include <nix/io/archive.h>
+#include <kwheel/base/io/archive.h>
 
 bool DeviceDX12::initialize() {
 	uint32_t dxgiFactoryFlags = 0;
@@ -375,7 +375,7 @@ DeviceDX12::operator ComPtr<ID3D12Device> () const {
 	return m_device;
 }
 
-bool TriangleDelux::initialize( void* _wnd, Nix::IArchive* _arch ) {
+bool TriangleDelux::initialize( void* _wnd, kwheel::IArchive* _arch ) {
 
 	if (!_wnd || !_arch) {
 		return false;
